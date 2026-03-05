@@ -1,0 +1,25 @@
+[project]
+name = "quant-etf"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.18.3",
+    "loguru>=0.7.3",
+    "numpy>=2.4.0",
+    "pandas>=2.3.3",
+    "scipy>=1.16.3",
+]
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
