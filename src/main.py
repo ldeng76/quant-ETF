@@ -69,6 +69,13 @@ def parse_args():
         help="强制更新数据源"
     )
 
+    parser.add_argument(
+        "--backfill-stock-code-name",
+        "-b",
+        action="store_true",
+        help="补齐 stock_code_name.json 中缺失的股票代码名称"
+    )
+
     return parser.parse_args()
 
 
@@ -96,6 +103,13 @@ def main():
 
     if args.list:
         list_tasks()
+        return
+
+    if args.backfill_stock_code_name:
+        from quant_etf.data_source import ETFDataSource
+        ds = ETFDataSource()
+        result = ds.backfill_stock_names()
+        logger.info(f"补齐完成: {result}")
         return
 
     task_name = args.task.lower()

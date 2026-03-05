@@ -1,10 +1,15 @@
 import pandas as pd
 import json
+import sys
 from pathlib import Path
 from loguru import logger
 from datetime import datetime, timedelta
 from quant_etf.conf import DATA_DIR, ETF_POOL
 from quant_etf.tdx import get_tdx_path, parse_tdx_day_file
+
+_collect_info_path = Path(__file__).parent.parent / "collect_info"
+if str(_collect_info_path) not in sys.path:
+    sys.path.insert(0, str(_collect_info_path))
 
 
 class ETFDataSource:
@@ -46,6 +51,58 @@ class ETFDataSource:
         except Exception as e:
             logger.warning(f"Failed to load cached {map_type} name map from {path}: {e}")
             return {}
+
+    def _load_name_map_from_meta(self) -> dict[str, str]:
+        """
+        从 data/meta/stock_code_name.json 加载名称映射
+        :return: {code: name}
+        """
+        meta_path = self.data_dir / "meta" / "stock_code_name.json"
+        if not meta_path.exists():
+            return {}
+        try:
+            items = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(items, list):
+                return {item["code"]: item["name"] for item in items if "code" in item and "name" in item}
+            return {}
+        except Exception as e:
+            logger.warning(f"Failed to load name map from {meta_path}: {e}")
+            return {}
+
+    def get_etf_name_map(self) -> dict:
+        """
+        获取 ETF 代码到名称的映射字典（从 data/meta/stock_code_name.json）
+        :return: {code: name}
+        """
+        if self._etf_name_map is not None:
+            return self._etf_name_map
+
+        meta_map = self._load_name_map_from_meta()
+        if meta_map:
+            logger.info(f"Loaded ETF name map from data/meta/stock_code_name.json ({len(meta_map)} items)")
+            self._etf_name_map = meta_map
+            return meta_map
+
+        logger.warning("No ETF name map found in data/meta/stock_code_name.json")
+        return {}
+
+    def get_stock_name_map(self, force_refresh: bool = False) -> dict[str, str]:
+        """
+        获取 A 股股票代码到名称的映射字典（从 data/meta/stock_code_name.json）
+        :param force_refresh: 是否强制刷新缓存
+        :return: {code: name}
+        """
+        if self._stock_name_map is not None and not force_refresh:
+            return self._stock_name_map
+
+        meta_map = self._load_name_map_from_meta()
+        if meta_map:
+            logger.info(f"Loaded stock name map from data/meta/stock_code_name.json ({len(meta_map)} items)")
+            self._stock_name_map = meta_map
+            return meta_map
+
+        logger.warning("No stock name map found in data/meta/stock_code_name.json")
+        return {}
 
     def _save_cached_name_map(self, map_type: str, name_map: dict[str, str]):
         """
@@ -191,41 +248,6 @@ class ETFDataSource:
 
         raise RuntimeError(f"Failed to load stock data for {code}. No TDX data found for {code}")
 
-    def get_etf_name_map(self) -> dict:
-        """
-        获取 ETF 代码到名称的映射字典（从本地缓存）
-        :return: {code: name}
-        """
-        if self._etf_name_map is not None:
-            return self._etf_name_map
-
-        cached_map = self._load_cached_name_map("etf")
-        if cached_map:
-            logger.info(f"Loaded ETF name map from local cache ({len(cached_map)} items)")
-            self._etf_name_map = cached_map
-            return cached_map
-
-        logger.warning("No ETF name map cache found. Please populate data/meta/etf_name_map.json manually.")
-        return {}
-
-    def get_stock_name_map(self, force_refresh: bool = False) -> dict[str, str]:
-        """
-        获取 A 股股票代码到名称的映射字典（从本地缓存）
-        :param force_refresh: 是否强制刷新缓存
-        :return: {code: name}
-        """
-        if self._stock_name_map is not None and not force_refresh:
-            return self._stock_name_map
-
-        cached_map = self._load_cached_name_map("stock")
-        if cached_map:
-            logger.info(f"Loaded stock name map from local cache ({len(cached_map)} items)")
-            self._stock_name_map = cached_map
-            return cached_map
-
-        logger.warning("No stock name map cache found. Please populate data/meta/stock_name_map.json manually.")
-        return {}
-
     def update_all(self):
         """
         检查 ETF 池中所有 ETF 的数据是否存在（只检查通达信数据）
@@ -241,6 +263,76 @@ class ETFDataSource:
                 missing_count += 1
                 logger.warning(f"No TDX data found for {code}")
         logger.info(f"Check completed. Found: {found_count}, Missing: {missing_count}")
+
+    def backfill_stock_names(self, target_file: str | Path | None = None) -> dict:
+        """
+        补齐 stock_code_name.json 中缺失的股票代码名称
+        :param target_file: 目标 JSON 文件路径 (默认: data/meta/stock_code_name.json)
+        :return: 统计信息 {"missing": int, "filled": int, "failed": list}
+        """
+        from missing_code_finder import find_missing_codes, get_all_missing_codes, normalize_code
+        from simple_stock_api import SimpleStockAPI
+
+        if target_file is None:
+            target_file = DATA_DIR / "meta" / "stock_code_name.json"
+        else:
+            target_file = Path(target_file)
+
+        logger.info(f"开始补齐股票代码名称，目标文件: {target_file}")
+
+        missing = find_missing_codes(target_file)
+        all_missing_codes = get_all_missing_codes(target_file)
+
+        if not all_missing_codes:
+            logger.info("没有缺失的代码，无需补齐")
+            return {"missing": 0, "filled": 0, "failed": []}
+
+        total_missing = sum(len(v) for v in missing.values())
+        logger.info(f"缺失代码总数: {total_missing} (ETF: {len(missing['etf'])}, 短线: {len(missing['stock'])}, 中线: {len(missing['mid_term_stock'])})")
+
+        api = SimpleStockAPI()
+        results = api.batch_query(all_missing_codes, delay=0.3)
+
+        existing_items = []
+        if target_file.exists():
+            try:
+                existing_items = json.loads(target_file.read_text(encoding="utf-8"))
+                if not isinstance(existing_items, list):
+                    existing_items = []
+            except Exception:
+                existing_items = []
+
+        existing_codes = {normalize_code(item["code"]) for item in existing_items if "code" in item}
+
+        new_items = []
+        failed_codes = []
+        for result in results:
+            code = normalize_code(result.get("code", ""))
+            name = result.get("name")
+            if name and code and code not in existing_codes:
+                new_items.append({
+                    "code": code,
+                    "name": name,
+                    "market": result.get("market", ""),
+                })
+                existing_codes.add(code)
+                logger.info(f"补齐成功: {code} -> {name}")
+            elif not name:
+                failed_codes.append(code)
+                logger.warning(f"补齐失败: {code} (查询无结果)")
+
+        all_items = existing_items + new_items
+        all_items.sort(key=lambda x: x.get("code", ""))
+
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(json.dumps(all_items, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info(f"补齐完成，已写入 {len(new_items)} 条新记录到 {target_file}")
+
+        return {
+            "missing": total_missing,
+            "filled": len(new_items),
+            "failed": failed_codes,
+        }
 
 
 if __name__ == "__main__":

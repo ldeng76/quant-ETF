@@ -1,0 +1,332 @@
+[
+  {
+    "code": "510050",
+    "name": "华夏上证50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "510310",
+    "name": "易方达沪深300ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159352",
+    "name": "易方达创业板ETF",
+    "market": "sz"
+  },
+  {
+    "code": "510880",
+    "name": "华泰柏瑞红利ETF",
+    "market": "sz"
+  },
+  {
+    "code": "561280",
+    "name": "华泰柏瑞中证电力ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159957",
+    "name": "华夏创业板ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159949",
+    "name": "华安创业板50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159991",
+    "name": "招商创业板50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159780",
+    "name": "鹏华中证科创创业50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159811",
+    "name": "博时科创板50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "512480",
+    "name": "国联安半导体ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159560",
+    "name": "南方中证500ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159516",
+    "name": "易方达中证1000ETF",
+    "market": "sz"
+  },
+  {
+    "code": "562820",
+    "name": "国泰中证基建ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159590",
+    "name": "华夏中证2000ETF",
+    "market": "sz"
+  },
+  {
+    "code": "562920",
+    "name": "华夏中证物流ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159819",
+    "name": "嘉实中证稀有金属主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159363",
+    "name": "华夏中证新能源汽车ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159526",
+    "name": "华泰柏瑞中证医疗ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159206",
+    "name": "国泰中证消费ETF",
+    "market": "sz"
+  },
+  {
+    "code": "561220",
+    "name": "国泰中证影视ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159667",
+    "name": "华夏国证半导体芯片ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159638",
+    "name": "华富中证人工智能产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "516390",
+    "name": "华泰柏瑞中证光伏产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159565",
+    "name": "华夏中证云计算与大数据主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159261",
+    "name": "汇添富中证大数据产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "560980",
+    "name": "富国中证智能制造ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159775",
+    "name": "建信中证电池主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "561380",
+    "name": "广发中证新材料主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "561700",
+    "name": "易方达中证高端装备制造ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159713",
+    "name": "华泰柏瑞中证稀土产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "516020",
+    "name": "华宝中证化工产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159652",
+    "name": "华夏中证5G通信主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "512660",
+    "name": "国泰中证军工ETF",
+    "market": "sz"
+  },
+  {
+    "code": "515220",
+    "name": "国泰中证煤炭ETF",
+    "market": "sz"
+  },
+  {
+    "code": "588010",
+    "name": "易方达上证科创板50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159886",
+    "name": "广发中证环保产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "512070",
+    "name": "易方达中证证券ETF",
+    "market": "sz"
+  },
+  {
+    "code": "515020",
+    "name": "华宝中证银行ETF",
+    "market": "sz"
+  },
+  {
+    "code": "513090",
+    "name": "易方达中证港股通50ETF",
+    "market": "sz"
+  },
+  {
+    "code": "517520",
+    "name": "国泰中证动漫游戏ETF",
+    "market": "sz"
+  },
+  {
+    "code": "516130",
+    "name": "银华中证农业主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "512690",
+    "name": "鹏华中证酒ETF",
+    "market": "sz"
+  },
+  {
+    "code": "560080",
+    "name": "易方达中证创新药产业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159859",
+    "name": "天弘中证医疗ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159567",
+    "name": "国泰中证生物科技ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159265",
+    "name": "华夏中证智能汽车主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159869",
+    "name": "华夏中证教育ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159856",
+    "name": "国泰中证物联网主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159202",
+    "name": "易方达中证一带一路主题ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159742",
+    "name": "博时中证国企改革ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159605",
+    "name": "广发中证央企创新驱动ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159750",
+    "name": "南方中证粤港澳大湾区ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159712",
+    "name": "汇添富中证长三角一体化发展ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159312",
+    "name": "华夏中证京津冀协同发展ETF",
+    "market": "sz"
+  },
+  {
+    "code": "513100",
+    "name": "国泰纳斯达克100ETF",
+    "market": "sz"
+  },
+  {
+    "code": "513500",
+    "name": "博时标普500ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159941",
+    "name": "广发纳斯达克100ETF",
+    "market": "sz"
+  },
+  {
+    "code": "513130",
+    "name": "华泰柏瑞南方东英恒生科技ETF",
+    "market": "sz"
+  },
+  {
+    "code": "513330",
+    "name": "华夏恒生互联网科技业ETF",
+    "market": "sz"
+  },
+  {
+    "code": "518880",
+    "name": "华安黄金ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159001",
+    "name": "易方达保证金货币ETF",
+    "market": "sz"
+  },
+  {
+    "code": "511160",
+    "name": "国泰上证5年期国债ETF",
+    "market": "sz"
+  },
+  {
+    "code": "510170",
+    "name": "国联安上证商品ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159985",
+    "name": "华夏豆粕ETF",
+    "market": "sz"
+  },
+  {
+    "code": "159697",
+    "name": "国泰中证畜牧养殖ETF",
+    "market": "sz"
+  }
+]

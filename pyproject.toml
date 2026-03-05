@@ -11,6 +11,7 @@ dependencies = [
     "pandas-stubs~=2.3.3",
     "pytdx",
     "scipy>=1.16.3",
+    "requests>=2.31.0",
 ]
 
 [tool.uv.sources]
