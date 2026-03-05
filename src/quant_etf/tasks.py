@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from dataclasses import asdict
 
 import pandas as pd
 from loguru import logger
@@ -46,6 +47,29 @@ class BaseTask(ABC):
         self.ds = ETFDataSource()
         self.strategy = StrategyEngine()
         self.risk_manager = RiskManager()
+
+    def save_results_to_csv(self, data: List[Dict[str, Any]], filename_prefix: str) -> None:
+        """
+        将结果保存为 CSV 文件
+        """
+        if not data:
+            logger.warning("No data to save.")
+            return
+
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        output_dir = PROJECT_ROOT / "data" / "results" / date_str
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_path = output_dir / f"{filename_prefix}.csv"
+        
+        df = pd.DataFrame(data)
+        
+        # 确保 date 列存在
+        if "date" not in df.columns:
+            df.insert(0, "date", date_str)
+            
+        df.to_csv(output_path, index=False, encoding="utf-8-sig")
+        logger.info(f"Results saved to CSV: {output_path}")
 
     @abstractmethod
     def get_pool(self) -> List[str]:
@@ -145,6 +169,9 @@ class ETFTask(BaseTask):
 
     def run_strategy(self, data: Dict[str, pd.DataFrame]) -> List[ETFScore]:
         ranked = self.strategy.rank_etfs(data)
+        # 构建映射以便查找原始涨幅数据
+        ranked_map = {item.code: item for item in ranked}
+        
         portfolio = self.strategy.get_target_portfolio(ranked, top_n=TOP_N)
 
         etf_name_map = self.ds.get_etf_name_map()
@@ -175,13 +202,19 @@ class ETFTask(BaseTask):
         etf_name_map = self.ds.get_etf_name_map()
         for code, weight in final_portfolio.items():
             if weight > 0:
+                original_item = ranked_map.get(code)
+                r60 = original_item.r60 if original_item else 0.0
+                r20 = original_item.r20 if original_item else 0.0
+                r10 = original_item.r10 if original_item else 0.0
+                r5 = original_item.r5 if original_item else 0.0
+                
                 item = ETFScore(
                     code=code,
                     score=weight,
-                    r60=0,
-                    r20=0,
-                    r10=0,
-                    r5=0,
+                    r60=r60,
+                    r20=r20,
+                    r10=r10,
+                    r5=r5,
                 )
                 output_results.append((item, etf_name_map.get(code, "Unknown"), weight))
 
@@ -194,6 +227,17 @@ class ETFTask(BaseTask):
 
     def export_results(self, results: List[ETFScore]) -> None:
         etf_name_map = self.ds.get_etf_name_map()
+        
+        # 保存 CSV
+        csv_data = []
+        for item in results:
+            row = asdict(item)
+            row["name"] = etf_name_map.get(item.code, "Unknown")
+            # 重命名 score 为 target_weight 以免歧义
+            row["target_weight"] = row.pop("score")
+            csv_data.append(row)
+        self.save_results_to_csv(csv_data, "etf")
+
         codes = [r.code for r in results]
 
         logger.info("=" * 30)
@@ -254,6 +298,15 @@ class ShortTermStockTask(BaseTask):
 
     def export_results(self, results: List[StockScore]) -> None:
         stock_name_map = self.ds.get_stock_name_map()
+        
+        # 保存 CSV
+        csv_data = []
+        for item in results:
+            row = asdict(item)
+            row["name"] = stock_name_map.get(item.code, "Unknown")
+            csv_data.append(row)
+        self.save_results_to_csv(csv_data, "short")
+
         codes = [r.code for r in results]
 
         logger.info("=" * 30)
@@ -312,6 +365,15 @@ class MidTermReboundTask(BaseTask):
 
     def export_results(self, results: List[ReboundStockScore]) -> None:
         stock_name_map = self.ds.get_stock_name_map()
+        
+        # 保存 CSV
+        csv_data = []
+        for item in results:
+            row = asdict(item)
+            row["name"] = stock_name_map.get(item.code, "Unknown")
+            csv_data.append(row)
+        self.save_results_to_csv(csv_data, "mid")
+
         codes = [r.code for r in results]
 
         logger.info("=" * 30)
