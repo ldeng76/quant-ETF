@@ -11,7 +11,7 @@ def test1():
     """读取并打印指定 TDX 日线文件尾部数据。"""
     reader = TdxDailyBarReader()
     # df = reader.get_df(r"C:\new_hxzq_hc\vipdoc\sz\lday\sz000001.day")
-    df = reader.get_df(r"C:\new_hxzq_hc\vipdoc\sh\lday\sh562920.day")
+    df = reader.get_df(r"C:\new_hxzq_hc\vipdoc\sh\lday\sh510310.day")
     print(df.tail(5))
 
 if __name__ == '__main__':

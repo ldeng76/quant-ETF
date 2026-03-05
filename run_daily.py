@@ -11,10 +11,10 @@ from quant_etf.tasks import TaskRegistry
 from quant_etf.tasks import ETFTask, ShortTermStockTask, MidTermReboundTask
 from quant_etf.comparison import ResultComparator
 
-def run_task(task_name: str):
-    logger.info(f"Running task: {task_name}")
+def run_task(task_name: str, target_date: str | None = None):
+    logger.info(f"Running task: {task_name}" + (f" for date {target_date}" if target_date else ""))
     try:
-        task = TaskRegistry.get_task(task_name)
+        task = TaskRegistry.get_task(task_name, target_date=target_date)
         if not task:
             logger.error(f"Task not found: {task_name}")
             return

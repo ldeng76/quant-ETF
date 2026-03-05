@@ -35,7 +35,12 @@ class BaseTask(ABC):
     name: str = "base"
     description: str = "Base task"
 
-    def __init__(self):
+    def __init__(self, target_date: str | None = None):
+        """
+        初始化任务
+        :param target_date: 目标日期，格式 YYYY-MM-DD。默认为 None，表示使用当前日期。
+        """
+        self.target_date = target_date
         self.ds: Optional[ETFDataSource] = None
         self.strategy: Optional[StrategyEngine] = None
         self.risk_manager: Optional[RiskManager] = None
@@ -56,7 +61,7 @@ class BaseTask(ABC):
             logger.warning("No data to save.")
             return
 
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = self.target_date if self.target_date else datetime.now().strftime("%Y-%m-%d")
         output_dir = PROJECT_ROOT / "data" / "results" / date_str
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -122,6 +127,14 @@ class BaseTask(ABC):
         if not data:
             logger.error("No data loaded. Exiting.")
             return
+
+        # 根据 target_date 对数据进行切片过滤
+        if self.target_date:
+            target_dt = datetime.strptime(self.target_date, "%Y-%m-%d")
+            data = {
+                code: df[df.index <= target_dt] for code, df in data.items() if not df.empty
+            }
+            logger.info(f"Filtered data to before {self.target_date}")
 
         logger.info(f"Running strategy on {len(data)} securities...")
         results = self.run_strategy(data)
@@ -407,14 +420,16 @@ class TaskRegistry:
     }
 
     @classmethod
-    def get_task(cls, name: str) -> Optional[BaseTask]:
+    def get_task(cls, name: str, target_date: str | None = None) -> Optional[BaseTask]:
         """
         根据任务名称获取任务实例
+        :param name: 任务名称
+        :param target_date: 目标日期，格式 YYYY-MM-DD
         """
         task_class = cls._tasks.get(name)
         if task_class is None:
             return None
-        return task_class()
+        return task_class(target_date=target_date)
 
     @classmethod
     def list_tasks(cls) -> List[Dict[str, str]]:

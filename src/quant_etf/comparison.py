@@ -3,10 +3,18 @@ from datetime import datetime, timedelta
 import pandas as pd
 from loguru import logger
 from quant_etf.conf import PROJECT_ROOT
+from quant_etf.data_source import ETFDataSource
 
 class ResultComparator:
     def __init__(self):
         self.results_dir = PROJECT_ROOT / "data" / "results"
+        self._ds = None
+
+    @property
+    def ds(self):
+        if self._ds is None:
+            self._ds = ETFDataSource()
+        return self._ds
 
     def find_previous_result_file(self, task_name: str, current_date_str: str, lookback_days: int = 3) -> Path | None:
         """
@@ -35,12 +43,13 @@ class ResultComparator:
             return f"No result file found for {task_name} on {current_date_str}"
 
         prev_file = self.find_previous_result_file(task_name, current_date_str)
-        if not prev_file:
-            return f"No previous result file found for {task_name} within 3 days (before {current_date_str})."
-
+        
         try:
             df_curr = pd.read_csv(current_file)
-            df_prev = pd.read_csv(prev_file)
+            if prev_file:
+                df_prev = pd.read_csv(prev_file)
+            else:
+                df_prev = pd.DataFrame()
         except Exception as e:
             return f"Error reading CSV files: {e}"
 
@@ -50,18 +59,17 @@ class ResultComparator:
         # 确保 code 是字符串，去除可能的 .0 后缀（虽然保存时应该没问题，但读取时可能会被当做 float）
         if "code" in df_curr.columns:
             df_curr["code"] = df_curr["code"].astype(str).str.replace(r'\.0$', '', regex=True)
-        if "code" in df_prev.columns:
+        if not df_prev.empty and "code" in df_prev.columns:
             df_prev["code"] = df_prev["code"].astype(str).str.replace(r'\.0$', '', regex=True)
 
         curr_codes = set(df_curr["code"]) if not df_curr.empty else set()
         prev_codes = set(df_prev["code"]) if not df_prev.empty else set()
         
-        # 建立 code -> name 映射
-        name_map = {}
-        if not df_curr.empty:
-            name_map.update(dict(zip(df_curr["code"], df_curr["name"])))
-        if not df_prev.empty:
-            name_map.update(dict(zip(df_prev["code"], df_prev["name"])))
+        # 建立 code -> name 映射（优先使用 data_source 获取正确名称）
+        if task_name == "etf":
+            name_map = self.ds.get_etf_name_map()
+        else:
+            name_map = self.ds.get_stock_name_map()
 
         new_entries = curr_codes - prev_codes
         exits = prev_codes - curr_codes
@@ -69,7 +77,10 @@ class ResultComparator:
 
         lines = []
         lines.append(f"Comparison Report for {task_name.upper()}")
-        lines.append(f"Current: {current_date_str} | Previous: {prev_file.parent.name}")
+        if prev_file:
+            lines.append(f"Current: {current_date_str} | Previous: {prev_file.parent.name}")
+        else:
+            lines.append(f"Current: {current_date_str} | Previous: None (First Run)")
         lines.append("-" * 40)
 
         if new_entries:

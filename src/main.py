@@ -41,10 +41,10 @@ def parse_args():
   mid     中期反弹股票选股任务
 
 示例:
-  python main.py etf
-  python main.py short
-  python main.py mid
-  python main.py --list
+  uv run python src/main.py etf
+  uv run python src/main.py short
+  uv run python src/main.py mid
+  uv run python src/main.py --list
         """
     )
 
@@ -134,3 +134,23 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# 使用说明
+#
+# 运行 ETF 选股任务:
+#   uv run python src/main.py etf
+#
+# 运行短线股票选股任务:
+#   uv run python src/main.py short
+#
+# 运行中期反弹股票选股任务:
+#   uv run python src/main.py mid
+#
+# 列出所有可用任务:
+#   uv run python src/main.py --list
+#   uv run python src/main.py -l
+#
+# 补齐缺失的股票代码名称:
+#   uv run python src/main.py --backfill-stock-code-name
+#   uv run python src/main.py -b
