@@ -315,7 +315,7 @@ wheels = [
 [[package]]
 name = "pytdx"
 version = "1.72"
-source = { path = "../../2026/pytdx/dist/pytdx-1.72-py3-none-any.whl" }
+source = { path = "docs/pytdx-1.72-py3-none-any.whl" }
 dependencies = [
     { name = "click" },
     { name = "cryptography" },
@@ -400,7 +400,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pandas-stubs", specifier = "~=2.3.3" },
-    { name = "pytdx", path = "../../2026/pytdx/dist/pytdx-1.72-py3-none-any.whl" },
+    { name = "pytdx", path = "docs/pytdx-1.72-py3-none-any.whl" },
     { name = "scipy", specifier = ">=1.16.3" },
 ]
 

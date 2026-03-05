@@ -9,9 +9,12 @@ dependencies = [
     "numpy>=2.4.0",
     "pandas>=2.3.3",
     "pandas-stubs~=2.3.3",
-    "pytdx @ file:///E:/mw3/wspy/2026/pytdx/dist/pytdx-1.72-py3-none-any.whl",
+    "pytdx",
     "scipy>=1.16.3",
 ]
+
+[tool.uv.sources]
+pytdx = { path = "docs/pytdx-1.72-py3-none-any.whl" }
 
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple"
