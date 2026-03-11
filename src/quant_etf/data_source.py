@@ -5,7 +5,7 @@ from pathlib import Path
 from loguru import logger
 from datetime import datetime, timedelta
 from quant_etf.conf import DATA_DIR, ETF_POOL
-from quant_etf.tdx import get_tdx_path, parse_tdx_day_file
+from quant_etf.tdx import get_tdx_path, parse_tdx_day_file, get_security_bars
 
 _collect_info_path = Path(__file__).parent.parent / "collect_info"
 if str(_collect_info_path) not in sys.path:
@@ -186,14 +186,17 @@ class ETFDataSource:
             else:
                 return last_date >= (today - timedelta(days=1))
 
-    def load_data(self, code: str, force_update: bool = False, check_freshness: bool = True) -> pd.DataFrame:
+    def load_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True) -> pd.DataFrame:
         """
-        加载 ETF 数据（从通达信本地文件）
+        加载 ETF 数据
+        优先级：本地 TDX 文件 > 缓存 > 在线获取
         :param code: ETF 代码
         :param force_update: 忽略，保留参数兼容
         :param check_freshness: 是否检查数据新鲜度
+        :param allow_online: 是否允许在线获取数据（默认 True）
         :return: DataFrame
         """
+        # 1. 尝试从本地 TDX 文件加载
         tdx_path = get_tdx_path(code)
         if tdx_path and tdx_path.exists():
             try:
@@ -204,6 +207,7 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Failed to load TDX data for {code}: {e}")
 
+        # 2. 尝试从缓存加载
         cache_path = self.get_cache_path(code)
         if cache_path.exists():
             try:
@@ -215,16 +219,33 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Error reading cache for {code}: {e}")
 
+        # 3. 尝试在线获取
+        if allow_online:
+            try:
+                logger.info(f"Fetching ETF data for {code} from online TDX server...")
+                df = get_security_bars(code)
+                if not df.empty:
+                    # 保存到缓存
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    df.to_csv(cache_path)
+                    logger.info(f"Saved online data to cache: {cache_path} (last: {df.index[-1].date()})")
+                    return df
+            except Exception as e:
+                logger.error(f"Failed to fetch online data for {code}: {e}")
+
         raise RuntimeError(f"Failed to load ETF data for {code}. No TDX data found for {code}")
 
-    def load_stock_data(self, code: str, force_update: bool = False, check_freshness: bool = True) -> pd.DataFrame:
+    def load_stock_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True) -> pd.DataFrame:
         """
-        加载股票数据（从通达信本地文件）
+        加载股票数据
+        优先级：本地 TDX 文件 > 缓存 > 在线获取
         :param code: 股票代码
         :param force_update: 忽略，保留参数兼容
         :param check_freshness: 是否检查数据新鲜度
+        :param allow_online: 是否允许在线获取数据（默认 True）
         :return: DataFrame
         """
+        # 1. 尝试从本地 TDX 文件加载
         tdx_path = get_tdx_path(code)
         if tdx_path and tdx_path.exists():
             try:
@@ -235,6 +256,7 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Failed to load TDX stock data for {code}: {e}")
 
+        # 2. 尝试从缓存加载
         cache_path = self.get_stock_cache_path(code)
         if cache_path.exists():
             try:
@@ -245,6 +267,20 @@ class ETFDataSource:
                         return df
             except Exception as e:
                 logger.error(f"Error reading stock cache for {code}: {e}")
+
+        # 3. 尝试在线获取
+        if allow_online:
+            try:
+                logger.info(f"Fetching stock data for {code} from online TDX server...")
+                df = get_security_bars(code)
+                if not df.empty:
+                    # 保存到缓存
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    df.to_csv(cache_path)
+                    logger.info(f"Saved online data to cache: {cache_path} (last: {df.index[-1].date()})")
+                    return df
+            except Exception as e:
+                logger.error(f"Failed to fetch online stock data for {code}: {e}")
 
         raise RuntimeError(f"Failed to load stock data for {code}. No TDX data found for {code}")
 

@@ -140,6 +140,131 @@ def get_tdx_path(code: str) -> Path | None:
     return None
 
 
+def get_security_bars(
+    code: str,
+    start: int = 0,
+    count: int = 800,
+    server: str | None = None,
+    port: int | None = 7709,
+    auto_retry: bool = True,
+    heartbeat: bool = False,
+    max_servers: int = 5,
+) -> pd.DataFrame:
+    """
+    获取证券的历史日线数据（在线）
+    :param code: 证券代码 (e.g. "510050", "000001")
+    :param start: 起始位置（0 表示最新数据）
+    :param count: 获取数量（每次最多约 800 条）
+    :param server: 行情服务器 IP（如果为 None，则自动尝试多个服务器）
+    :param port: 行情服务器端口
+    :param auto_retry: 是否启用自动重连
+    :param heartbeat: 是否启用心跳保活
+    :param max_servers: 最多尝试的服务器数量
+    :return: DataFrame 包含历史日线数据
+    """
+    market = code_to_market(code)
+
+    # 如果没有指定服务器，尝试多个服务器
+    if server is None:
+        hq_hosts = hosts.hq_hosts[:max_servers]
+        for host_info in hq_hosts:
+            if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
+                try_server = str(host_info[1])
+                try_port = int(host_info[2])
+            elif isinstance(host_info, dict):
+                try_server = host_info["ip"]
+                try_port = int(host_info["port"])
+            else:
+                continue
+
+            try:
+                api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+                if not api.connect(try_server, try_port):
+                    logger.debug(f"Failed to connect to TDX server {try_server}:{try_port}")
+                    continue
+
+                try:
+                    # 获取日线数据，category=9 表示日线
+                    bars = api.get_security_bars(9, market, code, start, count)
+                    if bars:
+                        df = api.to_df(bars)
+
+                        # 转换为与 parse_tdx_day_file 相同的格式
+                        if "datetime" in df.columns:
+                            df.rename(columns={"datetime": "date"}, inplace=True)
+                        df["date"] = pd.to_datetime(df["date"])
+                        df.set_index("date", inplace=True)
+                        df.sort_index(inplace=True)
+
+                        # 只保留需要的列，与 parse_tdx_day_file 保持一致
+                        # API 返回的是 vol 而不是 volume
+                        if "vol" in df.columns and "volume" not in df.columns:
+                            df.rename(columns={"vol": "volume"}, inplace=True)
+                        df = df[["open", "high", "low", "close", "amount", "volume"]]
+
+                        # 计算涨跌幅
+                        df["pct_chg"] = df["close"].pct_change() * 100
+                        df["pct_chg"] = df["pct_chg"].fillna(0.0)
+
+                        logger.info(f"Successfully fetched data for {code} from {try_server}:{try_port}")
+                        return df
+                    else:
+                        logger.debug(f"No bars returned from server {try_server}:{try_port}")
+                        continue
+
+                finally:
+                    api.disconnect()
+
+            except Exception as e:
+                logger.debug(f"Failed to get data from {try_server}:{try_port}: {e}")
+                continue
+
+        logger.warning(f"Failed to fetch data for {code} from all {len(hq_hosts)} servers")
+        return pd.DataFrame()
+
+    # 如果指定了服务器，只尝试该服务器
+    try:
+        api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+        if not api.connect(server, port):
+            logger.warning(f"Failed to connect to TDX HQ server {server}:{port}")
+            return pd.DataFrame()
+
+        try:
+            # 获取日线数据，category=9 表示日线
+            bars = api.get_security_bars(9, market, code, start, count)
+            if not bars:
+                logger.warning(f"No bars returned from server for {code}")
+                return pd.DataFrame()
+
+            df = api.to_df(bars)
+
+            # 转换为与 parse_tdx_day_file 相同的格式
+            if "datetime" in df.columns:
+                df.rename(columns={"datetime": "date"}, inplace=True)
+            df["date"] = pd.to_datetime(df["date"])
+            df.set_index("date", inplace=True)
+            df.sort_index(inplace=True)
+
+            # 只保留需要的列，与 parse_tdx_day_file 保持一致
+            # API 返回的是 vol 而不是 volume
+            if "vol" in df.columns and "volume" not in df.columns:
+                df.rename(columns={"vol": "volume"}, inplace=True)
+            df = df[["open", "high", "low", "close", "amount", "volume"]]
+
+            # 计算涨跌幅
+            df["pct_chg"] = df["close"].pct_change() * 100
+            df["pct_chg"] = df["pct_chg"].fillna(0.0)
+
+            return df
+
+        finally:
+            api.disconnect()
+
+    except Exception as e:
+        logger.error(f"Failed to get security bars for {code}: {e}")
+        return pd.DataFrame()
+
+
 def parse_tdx_day_file(file_path: Path | str) -> pd.DataFrame:
     """
     使用 pytdx 解析通达信 .day 文件
