@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 # 项目根目录
@@ -94,10 +95,17 @@ MID_TERM_STOCK_POOL = [
 ]
 
 # 通达信配置
-# 请修改为您本机通达信的安装路径下的 T0002/blocknew 目录
-# 必须使用绝对路径。如果是 Windows，建议使用原始字符串 r"..."
-# 例如: r"C:\new_tdx\T0002\blocknew"
-TDX_DIR = Path(r"C:\new_hxzq_hc")
+# 支持环境变量 TDX_DATA_PATH 指定通达信数据目录
+# Linux 默认路径: ~/.local/share/tdx
+# Windows 默认路径: C:\new_hxzq_hc
+_TDX_PATH_ENV = os.getenv("TDX_DATA_PATH")
+if _TDX_PATH_ENV:
+    TDX_DIR = Path(_TDX_PATH_ENV)
+elif os.name == "nt":  # Windows
+    TDX_DIR = Path(r"C:\new_hxzq_hc")
+else:  # Linux/macOS
+    TDX_DIR = Path.home() / ".local" / "share" / "tdx"
+
 TDX_VIPDOC_DIR = TDX_DIR / "vipdoc"
 TDX_BLOCK_DIR = TDX_DIR / "T0002" / "blocknew"
 
