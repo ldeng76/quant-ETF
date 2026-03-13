@@ -17,6 +17,10 @@ from pytdx.params import TDXParams
 from pytdx.config import hosts
 
 from quant_etf.conf import DATA_DIR, ALL_POOL
+import time as time_module
+
+_server_failures: dict[str, float] = {}
+SERVER_COOLDOWN = 120
 
 
 def code_to_market(code: str) -> int:
@@ -39,7 +43,7 @@ def get_minute_bars(
     server: Optional[str] = None,
     port: int = 7709,
     max_servers: int = 5,
-) -> pd.DataFrame:
+) -> list[dict]:
     """
     获取证券的分钟级K线数据
     :param code: 证券代码 (e.g. "510050", "000001")
@@ -47,14 +51,18 @@ def get_minute_bars(
     :param server: 行情服务器 IP（如果为 None，则自动尝试多个服务器）
     :param port: 行情服务器端口
     :param max_servers: 最多尝试的服务器数量
-    :return: DataFrame 包含分钟级K线数据
+    :return: list of dicts 包含分钟级K线数据
     """
     market = code_to_market(code)
 
     if server is not None:
         return _get_minute_bars_single_server(code, market, count, server, port)
 
+    current_time = time_module.time()
+
     hq_hosts = hosts.hq_hosts[:max_servers]
+    available_servers = []
+
     for host_info in hq_hosts:
         if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
             try_server = str(host_info[1])
@@ -65,12 +73,32 @@ def get_minute_bars(
         else:
             continue
 
+        server_key = f"{try_server}:{try_port}"
+        if server_key in _server_failures:
+            fail_time = _server_failures[server_key]
+            if current_time - fail_time < SERVER_COOLDOWN:
+                remaining = int(SERVER_COOLDOWN - (current_time - fail_time))
+                logger.debug(f"Server {server_key} is cooling down, {remaining}s remaining")
+                continue
+            else:
+                del _server_failures[server_key]
+
+        available_servers.append((try_server, try_port))
+
+    for try_server, try_port in available_servers:
+        server_key = f"{try_server}:{try_port}"
         result = _get_minute_bars_single_server(code, market, count, try_server, try_port)
-        if not result.empty:
+        if result:
+            if server_key in _server_failures:
+                del _server_failures[server_key]
+                logger.info(f"Server {server_key} recovered, removed from failure list")
             return result
+        else:
+            _server_failures[server_key] = current_time
+            logger.warning(f"Server {server_key} failed, pausing for {SERVER_COOLDOWN}s")
 
     logger.warning(f"Failed to fetch minute bars for {code} from all servers")
-    return pd.DataFrame()
+    return []
 
 
 def _get_minute_bars_single_server(
@@ -79,42 +107,51 @@ def _get_minute_bars_single_server(
     count: int,
     server: str,
     port: int,
-) -> pd.DataFrame:
+) -> list[dict]:
     """
     从单个服务器获取分钟级K线数据
+    :return: list of dicts 包含分钟级K线数据
     """
     try:
         api = TdxHq_API(auto_retry=True, heartbeat=False)
         if not api.connect(server, port):
             logger.debug(f"Failed to connect to TDX HQ server {server}:{port}")
-            return pd.DataFrame()
+            return []
 
         try:
             bars = api.get_security_bars(8, market, code, 0, count)
             if not bars:
                 logger.debug(f"No minute bars returned for {code} from {server}:{port}")
-                return pd.DataFrame()
+                return []
 
-            df = api.to_df(bars)
+            data = []
+            for bar in bars:
+                dt = bar.get("datetime", "")
+                if dt:
+                    try:
+                        dt = pd.to_datetime(dt)
+                    except:
+                        pass
+                    data.append({
+                        "time": dt,
+                        "open": float(bar.get("open", 0)),
+                        "high": float(bar.get("high", 0)),
+                        "low": float(bar.get("low", 0)),
+                        "close": float(bar.get("close", 0)),
+                        "volume": int(bar.get("vol", 0)) if bar.get("vol") else 0,
+                        "amount": float(bar.get("amount", 0)) if bar.get("amount") else 0.0,
+                    })
 
-            if "datetime" in df.columns:
-                df.rename(columns={"datetime": "time"}, inplace=True)
-            df["time"] = pd.to_datetime(df["time"])
-            df.set_index("time", inplace=True)
-            df.sort_index(inplace=True)
-
-            if "vol" in df.columns and "volume" not in df.columns:
-                df.rename(columns={"vol": "volume"}, inplace=True)
-
+            data.sort(key=lambda x: x["time"] if x.get("time") else "")
             logger.info(f"Successfully fetched minute bars for {code} from {server}:{port}")
-            return df
+            return data
 
         finally:
             api.disconnect()
 
     except Exception as e:
         logger.debug(f"Failed to get minute bars from {server}:{port}: {e}")
-        return pd.DataFrame()
+        return []
 
 
 def is_trading_time() -> bool:
@@ -273,11 +310,66 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
         conn = get_db_connection()
 
         df = df.reset_index()
-        df["code"] = code
-
         if "time" not in df.columns:
             return False
 
+        data = []
+        for row in df.itertuples(index=False):
+            time_val = row.time
+            if isinstance(time_val, str):
+                time_val = pd.to_datetime(time_val)
+            data.append((
+                code,
+                time_val,
+                row.open,
+                row.high,
+                row.low,
+                row.close,
+                int(row.volume) if row.volume else 0,
+                float(row.amount) if row.amount else 0.0,
+                time_val.year,
+                time_val.month,
+                time_val.day,
+                time_val.hour,
+                time_val.minute,
+            ))
+
+        if not data:
+            return False
+
+        conn.executemany("""
+            INSERT OR REPLACE INTO minute_bars
+            (code, time, open, high, low, close, volume, amount, year, month, day, hour, minute)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, data)
+
+        logger.debug(f"Saved {len(data)} minute bars for {code} to DuckDB")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to save minute data for {code}: {e}")
+        return False
+
+
+def save_minute_data_from_dicts(code: str, data: list[dict]) -> bool:
+    """
+    保存分钟数据到 DuckDB 数据库 (使用 DuckDB from_df)
+    :param code: 证券代码
+    :param data: list of dicts 包含分钟数据
+    :return: 是否保存成功
+    """
+    if not data:
+        return False
+
+    try:
+        conn = get_db_connection()
+
+        df = pd.DataFrame(data)
+        if df.empty:
+            return False
+
+        df["time"] = pd.to_datetime(df["time"])
+        df["code"] = code
         df["year"] = df["time"].dt.year
         df["month"] = df["time"].dt.month
         df["day"] = df["time"].dt.day
