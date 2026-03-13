@@ -9,6 +9,79 @@ from pytdx.config import hosts
 from quant_etf.conf import TDX_VIPDOC_DIR
 
 
+# 全局工作服务器缓存
+_cached_server: tuple[str, int] | None = None
+
+
+def _get_cached_server() -> tuple[str, int] | None:
+    """获取缓存的工作服务器"""
+    return _cached_server
+
+
+def _set_cached_server(server: str, port: int) -> None:
+    """设置缓存的工作服务器"""
+    global _cached_server
+    _cached_server = (server, port)
+    logger.info(f"TDX server cached: {server}:{port}")
+
+
+def _try_connect_and_fetch(
+    server: str,
+    port: int,
+    market: int,
+    code: str,
+    start: int,
+    count: int,
+    auto_retry: bool,
+    heartbeat: bool,
+) -> pd.DataFrame | None:
+    """
+    尝试连接服务器并获取数据
+    :return: DataFrame 如果成功，None 如果失败
+    """
+    try:
+        api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+        if not api.connect(server, port):
+            logger.debug(f"Failed to connect to TDX server {server}:{port}")
+            return None
+
+        try:
+            # 获取日线数据，category=9 表示日线
+            bars = api.get_security_bars(9, market, code, start, count)
+            if bars:
+                df = api.to_df(bars)
+
+                # 转换为与 parse_tdx_day_file 相同的格式
+                if "datetime" in df.columns:
+                    df.rename(columns={"datetime": "date"}, inplace=True)
+                df["date"] = pd.to_datetime(df["date"])
+                df.set_index("date", inplace=True)
+                df.sort_index(inplace=True)
+
+                # 只保留需要的列，与 parse_tdx_day_file 保持一致
+                # API 返回的是 vol 而不是 volume
+                if "vol" in df.columns and "volume" not in df.columns:
+                    df.rename(columns={"vol": "volume"}, inplace=True)
+                df = df[["open", "high", "low", "close", "amount", "volume"]]
+
+                # 计算涨跌幅
+                df["pct_chg"] = df["close"].pct_change() * 100
+                df["pct_chg"] = df["pct_chg"].fillna(0.0)
+
+                logger.info(f"Successfully fetched data for {code} from {server}:{port}")
+                return df
+            else:
+                logger.debug(f"No bars returned from server {server}:{port}")
+                return None
+
+        finally:
+            api.disconnect()
+
+    except Exception as e:
+        logger.debug(f"Failed to get data from {server}:{port}: {e}")
+        return None
+
+
 def code_to_market(code: str) -> int:
     """
     根据证券代码判断市场代码
@@ -164,8 +237,21 @@ def get_security_bars(
     """
     market = code_to_market(code)
 
-    # 如果没有指定服务器，尝试多个服务器
+    # 如果没有指定服务器，优先尝试缓存的工作服务器
     if server is None:
+        # 先尝试缓存的服务器
+        cached = _get_cached_server()
+        if cached:
+            try_server, try_port = cached
+            logger.debug(f"Trying cached TDX server: {try_server}:{try_port}")
+            result = _try_connect_and_fetch(try_server, try_port, market, code, start, count, auto_retry, heartbeat)
+            if result is not None:
+                return result
+            # 缓存服务器失败，清除缓存并继续尝试其他服务器
+            logger.debug(f"Cached server failed, clearing cache")
+            _cached_server = None
+
+        # 尝试其他服务器
         hq_hosts = hosts.hq_hosts[:max_servers]
         for host_info in hq_hosts:
             if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
@@ -177,49 +263,17 @@ def get_security_bars(
             else:
                 continue
 
-            try:
-                api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
-                if not api.connect(try_server, try_port):
-                    logger.debug(f"Failed to connect to TDX server {try_server}:{try_port}")
-                    continue
-
-                try:
-                    # 获取日线数据，category=9 表示日线
-                    bars = api.get_security_bars(9, market, code, start, count)
-                    if bars:
-                        df = api.to_df(bars)
-
-                        # 转换为与 parse_tdx_day_file 相同的格式
-                        if "datetime" in df.columns:
-                            df.rename(columns={"datetime": "date"}, inplace=True)
-                        df["date"] = pd.to_datetime(df["date"])
-                        df.set_index("date", inplace=True)
-                        df.sort_index(inplace=True)
-
-                        # 只保留需要的列，与 parse_tdx_day_file 保持一致
-                        # API 返回的是 vol 而不是 volume
-                        if "vol" in df.columns and "volume" not in df.columns:
-                            df.rename(columns={"vol": "volume"}, inplace=True)
-                        df = df[["open", "high", "low", "close", "amount", "volume"]]
-
-                        # 计算涨跌幅
-                        df["pct_chg"] = df["close"].pct_change() * 100
-                        df["pct_chg"] = df["pct_chg"].fillna(0.0)
-
-                        logger.info(f"Successfully fetched data for {code} from {try_server}:{try_port}")
-                        return df
-                    else:
-                        logger.debug(f"No bars returned from server {try_server}:{try_port}")
-                        continue
-
-                finally:
-                    api.disconnect()
-
-            except Exception as e:
-                logger.debug(f"Failed to get data from {try_server}:{try_port}: {e}")
+            # 跳过已缓存的服务器（已经尝试过了）
+            if cached and try_server == cached[0] and try_port == cached[1]:
                 continue
 
-        logger.warning(f"Failed to fetch data for {code} from all {len(hq_hosts)} servers")
+            result = _try_connect_and_fetch(try_server, try_port, market, code, start, count, auto_retry, heartbeat)
+            if result is not None:
+                # 缓存这个成功的服务器
+                _set_cached_server(try_server, try_port)
+                return result
+
+        logger.warning(f"Failed to fetch data for {code} from all servers")
         return pd.DataFrame()
 
     # 如果指定了服务器，只尝试该服务器

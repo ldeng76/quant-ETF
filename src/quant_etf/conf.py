@@ -102,7 +102,7 @@ _TDX_PATH_ENV = os.getenv("TDX_DATA_PATH")
 if _TDX_PATH_ENV:
     TDX_DIR = Path(_TDX_PATH_ENV)
 elif os.name == "nt":  # Windows
-    TDX_DIR = Path(r"C:\new_hxzq_hc")
+    TDX_DIR = Path(r"C:\new_hxzq_hc_error")
 else:  # Linux/macOS
     TDX_DIR = Path.home() / ".local" / "share" / "tdx"
 
