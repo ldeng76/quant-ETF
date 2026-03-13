@@ -19,3 +19,6 @@ wheels/
 data/
 logs/
 output/
+
+# Claude Code
+.memsearch/
