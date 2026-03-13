@@ -469,11 +469,11 @@ def collect_minute_data_for_all(
 
     for code in codes:
         try:
-            df = get_minute_bars(code, count)
-            if not df.empty:
-                if save_minute_data(code, df):
+            data = get_minute_bars(code, count)
+            if data:
+                if save_minute_data_from_dicts(code, data):
                     success_count += 1
-                    logger.info(f"Collected {len(df)} minute bars for {code}")
+                    logger.info(f"Collected {len(data)} minute bars for {code}")
                 else:
                     failed_count += 1
             else:

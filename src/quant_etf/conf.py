@@ -94,7 +94,8 @@ MID_TERM_STOCK_POOL = [
     "300894", "002271", "000031", "300364", "002714"
 ]
 
-ALL_POOL = list(dict.fromkeys([*MID_TERM_STOCK_POOL, *STOCK_POOL, *ETF_POOL]))
+ALL_POOL = list(dict.fromkeys([*ETF_POOL]))
+# ALL_POOL = list(dict.fromkeys([*MID_TERM_STOCK_POOL, *STOCK_POOL, *ETF_POOL]))
 
 # 通达信配置
 # 支持环境变量 TDX_DATA_PATH 指定通达信数据目录
