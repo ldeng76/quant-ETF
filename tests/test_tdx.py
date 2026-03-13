@@ -82,10 +82,8 @@ class TestTdxRealData:
         注意: 在 Linux 环境下，如果使用默认路径 (~/.local/share/tdx)，
         当目录不存在时此测试会被跳过，而不是失败。
         """
-        # 在 Linux 下使用默认路径时，如果目录不存在则跳过
-        if os.name != "nt" and "TDX_DATA_PATH" not in os.environ:
-            if not TDX_VIPDOC_DIR.exists():
-                pytest.skip(f"Linux 环境下使用默认路径，目录不存在: {TDX_VIPDOC_DIR}")
+        if "TDX_DATA_PATH" not in os.environ and not TDX_VIPDOC_DIR.exists():
+            pytest.skip(f"通达信数据目录不存在: {TDX_VIPDOC_DIR}。请设置 TDX_DATA_PATH 环境变量后再运行集成测试。")
 
         assert TDX_VIPDOC_DIR.exists(), f"通达信数据目录不存在: {TDX_VIPDOC_DIR}。请设置 TDX_DATA_PATH 环境变量。"
 

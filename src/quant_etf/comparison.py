@@ -45,9 +45,9 @@ class ResultComparator:
         prev_file = self.find_previous_result_file(task_name, current_date_str)
         
         try:
-            df_curr = pd.read_csv(current_file)
+            df_curr = pd.read_csv(current_file, dtype={"code": str} if current_file.exists() else None)
             if prev_file:
-                df_prev = pd.read_csv(prev_file)
+                df_prev = pd.read_csv(prev_file, dtype={"code": str} if prev_file.exists() else None)
             else:
                 df_prev = pd.DataFrame()
         except Exception as e:
