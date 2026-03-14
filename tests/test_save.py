@@ -1,7 +1,5 @@
-import sys
 import pandas as pd
 import os
-sys.path.insert(0, 'src')
 from quant_etf.minute_collector import get_minute_bars, save_minute_data, init_minute_db, query_minute_data
 from quant_etf.conf import ETF_POOL
 

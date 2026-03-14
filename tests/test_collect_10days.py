@@ -1,13 +1,16 @@
 """
 测试脚本：获取 ETF_POOL 中所有票的最近10个交易日的分钟级K线数据
 """
-import pandas as pd
-from datetime import datetime, timedelta
 import sys
 from pathlib import Path
+
+# 将 src 目录添加到 Python 路径
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import pandas as pd
+from datetime import datetime, timedelta
 from loguru import logger
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from quant_etf.minute_collector import (
     get_minute_bars,

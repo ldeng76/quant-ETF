@@ -1,6 +1,9 @@
-import sys
 import os
-sys.path.insert(0, 'src')
+import sys
+from pathlib import Path
+
+# 将 src 目录添加到 Python 路径
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 db_path = 'data/minute/minute_data.duckdb'
 if os.path.exists(db_path):

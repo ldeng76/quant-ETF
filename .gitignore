@@ -22,3 +22,6 @@ output/
 
 # Claude Code
 .memsearch/
+
+# Third-party tools
+goose_update_temp/
