@@ -17,6 +17,7 @@ from pytdx.params import TDXParams
 from pytdx.config import hosts
 
 from quant_etf.conf import DATA_DIR, ALL_POOL
+from quant_etf.tdx import CUSTOM_HQ_HOSTS
 import time as time_module
 
 _server_failures: dict[str, float] = {}
@@ -60,7 +61,7 @@ def get_minute_bars(
 
     current_time = time_module.time()
 
-    hq_hosts = hosts.hq_hosts[:max_servers]
+    hq_hosts = CUSTOM_HQ_HOSTS + list(hosts.hq_hosts)[:max_servers]
     available_servers = []
 
     for host_info in hq_hosts:

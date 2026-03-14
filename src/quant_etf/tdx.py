@@ -8,6 +8,15 @@ from pytdx.config import hosts
 
 from quant_etf.conf import TDX_VIPDOC_DIR
 
+CUSTOM_HQ_HOSTS = [
+    ("扩展行情(测试文件)", "112.74.214.43", 7727),
+    ("上海电信主站Z1", "180.153.18.170", 7709),
+    ("杭州电信主站J1", "60.191.117.167", 7709),
+    ("上证云成都电信一", "218.6.170.47", 7709),
+    ("上证云北京联通一", "123.125.108.14", 7709),
+    ("广发", "119.29.19.242", 7709),
+]
+
 
 # 全局工作服务器缓存
 _cached_server: tuple[str, int] | None = None
@@ -101,6 +110,16 @@ def _get_default_hq_server() -> tuple[str, int]:
     获取默认行情服务器地址
     :return: (ip, port) 元组
     """
+    if CUSTOM_HQ_HOSTS:
+        first_host = CUSTOM_HQ_HOSTS[0]
+        if isinstance(first_host, (tuple, list)):
+            if len(first_host) >= 3:
+                ip = str(first_host[1])
+                port = int(first_host[2])
+            else:
+                ip = str(first_host[0])
+                port = int(first_host[1])
+            return ip, port
     hq_hosts = hosts.hq_hosts
     if hq_hosts:
         first_host = hq_hosts[0]
@@ -252,7 +271,7 @@ def get_security_bars(
             _cached_server = None
 
         # 尝试其他服务器
-        hq_hosts = hosts.hq_hosts[:max_servers]
+        hq_hosts = CUSTOM_HQ_HOSTS + list(hosts.hq_hosts)[:max_servers]
         for host_info in hq_hosts:
             if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
                 try_server = str(host_info[1])
