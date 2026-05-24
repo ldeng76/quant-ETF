@@ -72,6 +72,28 @@ class BaseTask(ABC):
         # 确保 date 列存在
         if "date" not in df.columns:
             df.insert(0, "date", date_str)
+        
+        # 调整列顺序：name列移到第3个位置（在code之后）
+        if "name" in df.columns:
+            cols = df.columns.tolist()
+            cols.remove("name")
+            # 找到code列的位置，在其后插入name
+            if "code" in cols:
+                code_idx = cols.index("code")
+                cols.insert(code_idx + 1, "name")
+            else:
+                cols.insert(2, "name")  # 默认放在第3个位置
+            df = df[cols]
+        
+        # 涨幅和权重字段转换为百分比格式（保留2位小数的百分比字符串）
+        # ETF策略字段：r60, r20, r10, r5, target_weight
+        # Short策略字段：score, r60, r20, r10, r5
+        # Mid策略字段：score, drawdown_from_120d_high, bounce_from_20d_low, r20, r10, r5
+        pct_cols = ["r60", "r20", "r10", "r5", "target_weight", "score", 
+                    "drawdown_from_120d_high", "bounce_from_20d_low"]
+        for col in pct_cols:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: f"{x*100:.2f}%")
             
         df.to_csv(output_path, index=False, encoding="utf-8")
         logger.info(f"Results saved to CSV: {output_path}")

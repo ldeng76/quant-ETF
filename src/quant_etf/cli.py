@@ -356,6 +356,13 @@ def build_parser():
 
     sub.add_parser("backfill-stock-names", help="补齐 stock_code_name.json 中缺失的股票代码名称")
 
+    p = sub.add_parser(
+        "refresh-stock-names",
+        help="强制全量重建 stock_code_name.json（覆盖错误条目）",
+    )
+    p.add_argument("--dry-run", action="store_true", help="只打印差异，不写文件")
+    p.add_argument("--target", type=str, default=None, help="自定义目标文件路径")
+
     return parser
 
 
@@ -369,6 +376,31 @@ def cmd_backfill_stock_names(args):
     print(f"Backfill completed: {result}")
 
 
+def cmd_refresh_stock_names(args):
+    from loguru import logger
+    from quant_etf.data_source import ETFDataSource
+
+    ds = ETFDataSource()
+    result = ds.refresh_stock_names(target_file=args.target, dry_run=args.dry_run)
+    summary = (
+        f"new={len(result['new'])} "
+        f"updated={len(result['updated'])} "
+        f"unchanged={len(result['unchanged'])} "
+        f"failed={len(result['failed'])}"
+    )
+    logger.info(f"刷新完成: {summary}")
+    print(f"Refresh completed: {summary}")
+    if result["updated"]:
+        print("\n[Updated entries]")
+        for u in result["updated"]:
+            print(
+                f"  {u['code']}  '{u['old_name']}' -> '{u['new_name']}'"
+                f"  market '{u['old_market']}' -> '{u['new_market']}'"
+            )
+    if result["failed"]:
+        print(f"\n[Failed codes] (kept old entries): {result['failed']}")
+
+
 COMMANDS = {
     "daily-run": cmd_daily_run,
     "dashboard": cmd_dashboard,
@@ -379,6 +411,7 @@ COMMANDS = {
     "list-tasks": cmd_list_tasks,
     "check": cmd_check,
     "backfill-stock-names": cmd_backfill_stock_names,
+    "refresh-stock-names": cmd_refresh_stock_names,
 }
 
 

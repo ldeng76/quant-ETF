@@ -73,12 +73,17 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 def main():
     """CLI入口"""
+    import os
     import uvicorn
+
+    reload = os.environ.get("DASHBOARD_RELOAD", "true").lower() != "false"
+
     uvicorn.run(
-        "src.quant_etf.dashboard.app:app",
+        "quant_etf.dashboard.app:app",
         host=DASHBOARD_HOST,
         port=DASHBOARD_PORT,
-        reload=True,
+        reload=reload,
+        timeout_graceful_shutdown=3,  # 优雅关闭超时3秒，防止 SSE 长连接阻塞 CTRL+C 退出
     )
 
 

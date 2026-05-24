@@ -14,13 +14,14 @@ import hashlib
 class SimpleStockAPI:
     """简单的股票API查询类"""
     
-    def __init__(self):
+    def __init__(self, timeout: float = 2.0):
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'zh-CN,zh;q=0.9',
         })
+        self.timeout = timeout
     
     def get_market(self, code: str) -> str:
         """获取市场代码"""
@@ -40,7 +41,7 @@ class SimpleStockAPI:
         url = f"http://hq.sinajs.cn/list={market}{code}"
         
         try:
-            response = self.session.get(url, timeout=5)
+            response = self.session.get(url, timeout=self.timeout)
             if response.status_code == 200:
                 content = response.text
                 # 解析返回的数据
@@ -70,7 +71,7 @@ class SimpleStockAPI:
         url = f"http://qt.gtimg.cn/q={market}{code}"
         
         try:
-            response = self.session.get(url, timeout=5)
+            response = self.session.get(url, timeout=self.timeout)
             if response.status_code == 200:
                 content = response.text
                 # 解析返回的数据
@@ -106,7 +107,7 @@ class SimpleStockAPI:
         url = f"http://api.money.126.net/data/feed/{n163_code}"
         
         try:
-            response = self.session.get(url, timeout=5)
+            response = self.session.get(url, timeout=self.timeout)
             if response.status_code == 200:
                 content = response.text
                 # 解析JSONP格式
@@ -147,7 +148,7 @@ class SimpleStockAPI:
         }
         
         try:
-            response = self.session.get(url, params=params, timeout=5)
+            response = self.session.get(url, params=params, timeout=self.timeout)
             if response.status_code == 200:
                 data = response.json()
                 if data.get('rc') == 0 and data.get('data'):
@@ -175,12 +176,12 @@ class SimpleStockAPI:
         """
         print(f"查询股票: {code}")
         
-        # 尝试不同的API
+        # 尝试不同的API（按可靠性排序：腾讯最稳，新浪偶有超时）
         apis = [
-            self.query_by_sina_api,
             self.query_by_tencent_api,
-            self.query_by_163_api,
+            self.query_by_sina_api,
             self.query_by_eastmoney_api,
+            self.query_by_163_api,
         ]
         
         for api_func in apis:

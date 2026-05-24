@@ -48,7 +48,7 @@ def export_to_tdx_custom_block_auto(codes: List[str]):
 
     # 检查目录是否存在
     if not os.path.exists(TDX_BLOCK_DIR):
-        logger.warning(f"TDX_BLOCK_DIR path does not exist: {TDX_BLOCK_DIR}. Please check your configuration.")
+        logger.info(f"TDX_BLOCK_DIR path does not exist: {TDX_BLOCK_DIR}. Skipping auto export.")
         return None
         
     filename = f"{TDX_CUSTOM_BLOCK_NAME}.blk"

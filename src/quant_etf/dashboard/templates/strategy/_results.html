@@ -35,9 +35,6 @@
         </div>
 
         {% elif status.status == 'complete' and status.result %}
-        <div class="mb-3">
-            <canvas id="resultChart-{{ run_id }}"></canvas>
-        </div>
         <div class="table-responsive">
             <table class="table table-sm table-striped">
                 <thead>
@@ -58,36 +55,6 @@
                 </tbody>
             </table>
         </div>
-        <script>
-            // Chart.js 柱状图
-            const ctx{{ run_id }} = document.getElementById('resultChart-{{ run_id }}').getContext('2d');
-            const data{{ run_id }} = {{ status.result | tojson }};
-            const labels{{ run_id }} = data{{ run_id }}.map(r => r.code || r.name || '');
-            const scores{{ run_id }} = data{{ run_id }}.map(r => r.score || r.weight || 0);
-            new Chart(ctx{{ run_id }}, {
-                type: 'bar',
-                data: {
-                    labels: labels{{ run_id }},
-                    datasets: [{
-                        label: '评分/权重',
-                        data: scores{{ run_id }},
-                        backgroundColor: 'rgba(13, 110, 253, 0.6)',
-                        borderColor: 'rgba(13, 110, 253, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false },
-                        title: { display: true, text: '{{ status.strategy }} 策略评分' }
-                    },
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
-            });
-        </script>
 
         {% else %}
         <div class="text-muted">无结果数据</div>
