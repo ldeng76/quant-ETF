@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
+quant-etf = "quant_etf.cli:main"
 quant-dashboard = "quant_etf.dashboard.app:main"
 
 [tool.uv.sources]
