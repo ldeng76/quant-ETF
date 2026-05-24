@@ -1,0 +1,72 @@
+<div class="py-3">
+    <h4><i class="bi bi-bell"></i> 告警中心</h4>
+    <hr>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <div class="card text-bg-danger">
+                <div class="card-body">
+                    <h6>活跃告警</h6>
+                    <span class="display-6" id="active-alert-count">-</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card text-bg-secondary">
+                <div class="card-body">
+                    <h6>总告警数</h6>
+                    <span class="display-6" id="total-alert-count">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="btn-group mb-3" role="group">
+        <button class="btn btn-outline-secondary btn-sm active" data-filter="all">全部</button>
+        <button class="btn btn-outline-danger btn-sm" data-filter="active">活跃</button>
+        <button class="btn btn-outline-warning btn-sm" data-filter="acknowledged">已确认</button>
+        <button class="btn btn-outline-success btn-sm" data-filter="resolved">已解决</button>
+    </div>
+
+    <div id="alert-list"
+         hx-get="/api/alerts/dashboard"
+         hx-trigger="load every 15s">
+        <div class="spinner-border spinner-border-sm"></div> 加载告警...
+    </div>
+
+    <!-- 监控信号（DuckDB 数据源） -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="bi bi-broadcast"></i> 监控信号（ETFMonitor）</h6>
+        </div>
+        <div class="card-body p-0" id="monitor-signals"
+             hx-get="/api/alerts/monitor-signals"
+             hx-trigger="load every 30s">
+            <div class="spinner-border spinner-border-sm m-3"></div> 加载监控信号...
+        </div>
+    </div>
+</div>
+
+<script>
+    fetch('/api/alerts/dashboard/stats')
+        .then(r => r.json())
+        .then(stats => {
+            document.getElementById('active-alert-count').textContent = stats.active;
+            document.getElementById('total-alert-count').textContent = stats.total;
+        });
+
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const filter = this.dataset.filter;
+            document.querySelectorAll('[data-alert-status]').forEach(row => {
+                if (filter === 'all' || row.dataset.alertStatus === filter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+</script>

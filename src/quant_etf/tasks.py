@@ -73,7 +73,7 @@ class BaseTask(ABC):
         if "date" not in df.columns:
             df.insert(0, "date", date_str)
             
-        df.to_csv(output_path, index=False, encoding="utf-8-sig")
+        df.to_csv(output_path, index=False, encoding="utf-8")
         logger.info(f"Results saved to CSV: {output_path}")
 
     @abstractmethod

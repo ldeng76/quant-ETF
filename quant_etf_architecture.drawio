@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="Electron" modified="2026-05-22T00:00:00.000Z" agent="claude-code" version="24.0.0" type="device">
+  <diagram id="quant-etf-architecture" name="Quant ETF 业务逻辑图">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="2400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ==================== LAYER 1: DATA SOURCES ==================== -->
+        <mxCell id="layer1-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#6c757d;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1320" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="layer1-label" value="数据源层 Data Sources" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#6c757d;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="35" width="1320" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tdx-server" value="TDX 通达信服务器&#xa;实时行情 + 历史.day文件" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3cd;strokeColor=#e6a817;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="75" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="csv-cache" value="CSV 缓存&#xa;data/etf/*.csv" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3cd;strokeColor=#e6a817;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="380" y="75" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="duckdb-ts" value="DuckDB&#xa;minute_bars / alerts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3cd;strokeColor=#e6a817;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="660" y="75" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sqlite-ds" value="SQLite&#xa;账户 / 持仓 / 计划" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3cd;strokeColor=#e6a817;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="940" y="75" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="pool-config" value="股票池配置&#xa;ETF_POOL / STOCK_POOL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3cd;strokeColor=#e6a817;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="110" y="155" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== LAYER 2: DATA COLLECTION ==================== -->
+        <mxCell id="layer2-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f4fd;strokeColor=#1a73e8;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="220" width="1320" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="layer2-label" value="数据采集层 Data Collection" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#1a73e8;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="225" width="1320" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tdx-py" value="tdx.py&#xa;通达信协议解析" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2ff;strokeColor=#1a73e8;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="270" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="minute-collector" value="minute_collector.py&#xa;1分钟K线采集" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2ff;strokeColor=#1a73e8;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="350" y="270" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="minute-manager" value="minute_data_manager.py&#xa;1min → 15min 重采样" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2ff;strokeColor=#1a73e8;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="600" y="270" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="data-source" value="data_source.py&#xa;统一数据源加载" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2ff;strokeColor=#1a73e8;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="850" y="270" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="trading-day" value="trading_day.py&#xa;交易日历" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2ff;strokeColor=#1a73e8;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="270" width="150" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== LAYER 3: STRATEGY & ANALYSIS ==================== -->
+        <mxCell id="layer3-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="410" width="1320" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="layer3-label" value="策略与分析层 Strategy &amp; Analysis" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#2e7d32;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="415" width="1320" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="market-analyzer" value="market_analyzer.py&#xa;市场状态: 牛/熊/震荡" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="465" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="strategy-selector" value="strategy_selector.py&#xa;策略选择器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="340" y="465" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="strategies" value="strategies/&#xa;动量突破 | 量价策略" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="465" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="signal-generator" value="signal_generator.py&#xa;信号生成 + 去重 + 打分" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="830" y="465" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="strategy-engine" value="strategy.py&#xa;动量评分排名引擎" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="465" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== LAYER 4: RISK & EXECUTION ==================== -->
+        <mxCell id="layer4-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#c62828;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="640" width="1320" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="layer4-label" value="风控与执行层 Risk &amp; Execution" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#c62828;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="645" width="1320" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="risk-py" value="risk.py&#xa;基础风控: RSI/MA/分位数" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#c62828;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="695" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="risk-manager" value="risk_manager.py&#xa;ATR 止损/止盈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#c62828;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="340" y="695" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tasks" value="tasks.py&#xa;任务调度: ETF/短线/中线" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#c62828;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="695" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="alert-recorder" value="alert_recorder.py&#xa;信号写入 DuckDB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#c62828;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="840" y="695" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="export" value="export.py&#xa;TDX板块文件 + CSV" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#c62828;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="695" width="180" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== LAYER 5: DASHBOARD ==================== -->
+        <mxCell id="layer5-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="850" width="1320" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="layer5-label" value="Dashboard 展示层 (FastAPI)" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#7b1fa2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="855" width="1320" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Dashboard sub-sections -->
+        <mxCell id="routes-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="900" width="600" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="routes-label" value="Routes" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#7b1fa2;align=left;" vertex="1" parent="1">
+          <mxGeometry x="90" y="905" width="120" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="route-pages" value="pages.py&#xa;页面渲染" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="940" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="route-portfolio" value="portfolio.py&#xa;账户/持仓CRUD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="220" y="940" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="route-strategy" value="strategy.py&#xa;策略执行API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="940" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="route-alerts" value="alerts.py&#xa;告警管理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="940" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="route-market" value="market.py&#xa;市场状态/调度" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="940" width="100" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Services sub-section -->
+        <mxCell id="services-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="1070" width="600" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="services-label" value="Services" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#7b1fa2;align=left;" vertex="1" parent="1">
+          <mxGeometry x="90" y="1075" width="120" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="svc-scheduler" value="scheduler.py&#xa;定时调度" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1110" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="svc-runner" value="strategy_runner.py&#xa;异步执行 + SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="220" y="1110" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="svc-alert-engine" value="alert_engine.py&#xa;告警检测" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="1110" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="svc-sync" value="portfolio_sync.py&#xa;价格同步" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="1110" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="svc-sse" value="sse_manager.py&#xa;SSE实时推送" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="600" y="1110" width="100" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Entry Points on the side -->
+        <mxCell id="entry-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#f57f17;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="720" y="900" width="600" height="310" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-label" value="入口脚本 Entry Points" style="text;html=1;fontSize=14;fontStyle=1;fontColor=#f57f17;align=center;" vertex="1" parent="1">
+          <mxGeometry x="720" y="905" width="600" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="entry-main" value="main.py&#xa;CLI 主入口" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="950" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-daily" value="run_daily.py&#xa;每日任务" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="950" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-minute" value="run_minute_collector.py&#xa;分钟采集" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="950" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-dashboard" value="run_dashboard.py&#xa;启动Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="950" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-backfill" value="backfill_daily.py&#xa;回补历史数据" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="1030" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-monitor" value="monitor.py&#xa;实时监控循环" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="1030" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-fetch" value="fetch_10days_1min.py&#xa;一次性1min回补" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="1030" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="entry-compare" value="comparison.py&#xa;结果对比报告" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffecb3;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="1030" width="130" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== ARROWS / CONNECTIONS ==================== -->
+
+        <!-- L1 -> L2: Data Sources to Collection -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1a73e8;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="tdx-server" target="tdx-py">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1a73e8;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="csv-cache" target="data-source">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1a73e8;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" edge="1" parent="1" source="duckdb-ts" target="minute-manager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Within L2 -->
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1a73e8;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="tdx-py" target="minute-collector">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1a73e8;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="minute-collector" target="minute-manager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- L2 -> L3: Collection to Strategy -->
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=2;exitX=0.3;exitY=1;entryX=0.3;entryY=0;" edge="1" parent="1" source="minute-manager" target="market-analyzer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=2;exitX=0.7;exitY=1;entryX=0.7;entryY=0;" edge="1" parent="1" source="data-source" target="strategy-engine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Within L3 -->
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="market-analyzer" target="strategy-selector">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="strategy-selector" target="strategies">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="strategies" target="signal-generator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- L3 -> L4: Strategy to Risk/Execution -->
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c62828;strokeWidth=2;exitX=0.15;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="signal-generator" target="risk-py">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c62828;strokeWidth=2;exitX=0.35;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="signal-generator" target="risk-manager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Within L4 -->
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c62828;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="risk-py" target="risk-manager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c62828;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="risk-manager" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c62828;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="tasks" target="alert-recorder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c62828;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="alert-recorder" target="export">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- L4 -> L1 (back to DuckDB/SQLite) -->
+        <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e6a817;strokeWidth=2;exitX=0.75;exitY=1;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="alert-recorder" target="duckdb-ts">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="940" y="850" />
+              <mxPoint x="760" y="850" />
+              <mxPoint x="760" y="170" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e6a817;strokeWidth=2;exitX=1;exitY=0.5;entryX=1;entryY=0.75;dashed=1;" edge="1" parent="1" source="export" target="csv-cache">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1300" y="730" />
+              <mxPoint x="1300" y="140" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- L4 -> L5: Execution to Dashboard -->
+        <mxCell id="e19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.3;entryY=0;" edge="1" parent="1" source="tasks" target="svc-runner">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=2;exitX=0.75;exitY=1;entryX=0.7;entryY=0;" edge="1" parent="1" source="alert-recorder" target="svc-alert-engine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- L5 internal: Services to Routes -->
+        <mxCell id="e21" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="svc-runner" target="route-strategy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="svc-alert-engine" target="route-alerts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="svc-sync" target="route-portfolio">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="svc-scheduler" target="route-market">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e25" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="svc-sse" target="route-pages">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Entry Points connections -->
+        <mxCell id="e26" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f57f17;strokeWidth=1;exitX=0;exitY=0.5;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="entry-main" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e27" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f57f17;strokeWidth=1;exitX=0;exitY=0.5;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="entry-daily" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e28" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f57f17;strokeWidth=1;exitX=0;exitY=0.5;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="entry-minute" target="minute-collector">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e29" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f57f17;strokeWidth=1;exitX=0;exitY=0.5;entryX=0.5;entryY=0;dashed=1;" edge="1" parent="1" source="entry-dashboard" target="layer5-bg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e30" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f57f17;strokeWidth=1;exitX=0;exitY=0.5;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="entry-backfill" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e31" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f57f17;strokeWidth=1;exitX=0;exitY=0.5;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="entry-monitor" target="signal-generator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- L2 -> L3: data_source to tasks (ETFTask uses data_source internally) -->
+        <mxCell id="e32" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;dashed=1;" edge="1" parent="1" source="data-source" target="strategy-engine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- conf.py reference -->
+        <mxCell id="conf-py" value="conf.py&#xa;全局配置常量" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2ff;strokeColor=#1a73e8;fontSize=12;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="345" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e33" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1a73e8;strokeWidth=1;exitX=0.5;exitY=1;entryX=0;entryY=0;dashed=1;" edge="1" parent="1" source="conf-py" target="strategy-engine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

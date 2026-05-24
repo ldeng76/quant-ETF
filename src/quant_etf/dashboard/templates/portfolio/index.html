@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}持仓管理 - 量化ETF看板{% endblock %}
+{% block content %}
+<div class="py-3" x-data="{
+    showAccountModal: false,
+    showEditAccountModal: false,
+    showHoldingModal: false,
+    holdingAccountId: null,
+    accountForm: { name: '', broker: '', cash: 0 },
+    editAccountForm: { account_id: null, name: '', broker: '', cash: 0 },
+    holdingForm: { account_id: '', code: '', name: '', quantity: 0, cost_price: 0, strategy: '', notes: '' },
+    resetAccountForm() { this.accountForm = { name: '', broker: '', cash: 0 } },
+    resetEditAccountForm() { this.editAccountForm = { account_id: null, name: '', broker: '', cash: 0 } },
+    resetHoldingForm() { this.holdingForm = { account_id: '', code: '', name: '', quantity: 0, cost_price: 0, strategy: '', notes: '' } },
+}" x-on:open-account-modal.window="showAccountModal = true; resetAccountForm()"
+     x-on:open-edit-account-modal.window="showEditAccountModal = true; editAccountForm = { account_id: $event.detail.account_id, name: $event.detail.name, broker: $event.detail.broker, cash: $event.detail.cash }"
+     x-on:open-holding-modal.window="showHoldingModal = true; holdingAccountId = $event.detail.account_id; holdingForm.account_id = $event.detail.account_id; resetHoldingForm()">
+    <h4><i class="bi bi-folder"></i> 持仓管理</h4>
+    <hr>
+    <div class="row">
+        <div class="col-md-3">
+            <div id="account-list" hx-get="/api/portfolio/accounts" hx-trigger="load">
+                <div class="spinner-border spinner-border-sm"></div> 加载账户...
+            </div>
+        </div>
+        <div class="col-md-9">
+            <div id="holdings-table" class="text-muted small">
+                请先选择一个账户
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增账户模态框 -->
+    <div x-show="showAccountModal" x-cloak
+         class="modal-backdrop-custom"
+         style="position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;"
+         x-on:click.self="showAccountModal = false">
+        <div class="bg-white rounded shadow p-4" style="min-width:400px;max-width:90vw;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">新增账户</h5>
+                <button class="btn-close" x-on:click="showAccountModal = false"></button>
+            </div>
+            <form hx-post="/api/portfolio/accounts" hx-target="#account-list"
+                  x-on:submit="showAccountModal = false">
+                <div class="mb-2">
+                    <label class="form-label small">账户名称 *</label>
+                    <input type="text" name="name" class="form-control form-control-sm" x-model="accountForm.name" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">券商</label>
+                    <input type="text" name="broker" class="form-control form-control-sm" x-model="accountForm.broker">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">初始资金</label>
+                    <input type="number" step="0.01" name="cash" class="form-control form-control-sm" x-model="accountForm.cash">
+                </div>
+                <div class="text-end">
+                    <button type="button" class="btn btn-sm btn-secondary" x-on:click="showAccountModal = false">取消</button>
+                    <button type="submit" class="btn btn-sm btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 新增持仓模态框 -->
+    <div x-show="showHoldingModal" x-cloak
+         class="modal-backdrop-custom"
+         style="position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;"
+         x-on:click.self="showHoldingModal = false">
+        <div class="bg-white rounded shadow p-4" style="min-width:450px;max-width:90vw;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">新增持仓</h5>
+                <button class="btn-close" x-on:click="showHoldingModal = false"></button>
+            </div>
+            <form hx-post="/api/portfolio/holdings" hx-target="#holdings-table"
+                  x-on:submit="showHoldingModal = false">
+                <input type="hidden" name="account_id" x-model="holdingForm.account_id">
+                <div class="mb-2">
+                    <label class="form-label small">ETF代码 *</label>
+                    <input type="text" name="code" class="form-control form-control-sm" x-model="holdingForm.code" required minlength="6" maxlength="6">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">名称</label>
+                    <input type="text" name="name" class="form-control form-control-sm" x-model="holdingForm.name">
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6">
+                        <label class="form-label small">数量 *</label>
+                        <input type="number" name="quantity" class="form-control form-control-sm" x-model="holdingForm.quantity" required min="0">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">成本价 *</label>
+                        <input type="number" step="0.001" name="cost_price" class="form-control form-control-sm" x-model="holdingForm.cost_price" required min="0">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">策略</label>
+                    <input type="text" name="strategy" class="form-control form-control-sm" x-model="holdingForm.strategy">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">备注</label>
+                    <input type="text" name="notes" class="form-control form-control-sm" x-model="holdingForm.notes">
+                </div>
+                <div class="text-end">
+                    <button type="button" class="btn btn-sm btn-secondary" x-on:click="showHoldingModal = false">取消</button>
+                    <button type="submit" class="btn btn-sm btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 编辑账户模态框 -->
+    <div x-show="showEditAccountModal" x-cloak
+         class="modal-backdrop-custom"
+         style="position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;"
+         x-on:click.self="showEditAccountModal = false">
+        <div class="bg-white rounded shadow p-4" style="min-width:400px;max-width:90vw;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">编辑账户</h5>
+                <button class="btn-close" x-on:click="showEditAccountModal = false"></button>
+            </div>
+            <form x-on:submit.prevent="htmx.ajax('PUT', '/api/portfolio/accounts/' + editAccountForm.account_id, { target: '#account-list', values: { name: editAccountForm.name, broker: editAccountForm.broker, cash: editAccountForm.cash } }); showEditAccountModal = false">
+                <div class="mb-2">
+                    <label class="form-label small">账户名称 *</label>
+                    <input type="text" name="name" class="form-control form-control-sm" x-model="editAccountForm.name" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">券商</label>
+                    <input type="text" name="broker" class="form-control form-control-sm" x-model="editAccountForm.broker">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">资金</label>
+                    <input type="number" step="0.01" name="cash" class="form-control form-control-sm" x-model="editAccountForm.cash">
+                </div>
+                <div class="text-end">
+                    <button type="button" class="btn btn-sm btn-secondary" x-on:click="showEditAccountModal = false">取消</button>
+                    <button type="submit" class="btn btn-sm btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

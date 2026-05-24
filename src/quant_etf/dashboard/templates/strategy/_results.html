@@ -1,0 +1,96 @@
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>执行结果: {{ status.strategy }} ({{ run_id }})</span>
+        <span class="badge {{ 'bg-success' if status.status == 'complete' else 'bg-warning' }}">
+            {{ status.status }}
+        </span>
+    </div>
+    <div class="card-body">
+        {% if status.status == 'running' %}
+        <div class="text-center py-4">
+            <div class="progress mb-2">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     style="width: {{ status.progress }}%">
+                    {{ status.progress }}%
+                </div>
+            </div>
+            <p class="text-muted">策略执行中... 开始于 {{ status.started_at }}</p>
+            <button class="btn btn-sm btn-outline-primary"
+                    hx-get="/api/strategy/status/{{ run_id }}"
+                    hx-trigger="every 2s"
+                    hx-swap="none"
+                    @htmx:after-request="
+                        const data = JSON.parse(event.detail.xhr.response);
+                        if (data.status === 'complete' || data.status === 'error') {
+                            htmx.ajax('GET', '/api/strategy/results/{{ run_id }}', { target: '#strategy-result' });
+                        }
+                    ">
+                自动刷新中...
+            </button>
+        </div>
+
+        {% elif status.status == 'error' %}
+        <div class="alert alert-danger">
+            <strong>执行失败:</strong> {{ status.error }}
+        </div>
+
+        {% elif status.status == 'complete' and status.result %}
+        <div class="mb-3">
+            <canvas id="resultChart-{{ run_id }}"></canvas>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        {% for key in status.result[0].keys() %}
+                        <th>{{ key }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in status.result %}
+                    <tr>
+                        {% for val in row.values() %}
+                        <td>{{ val }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <script>
+            // Chart.js 柱状图
+            const ctx{{ run_id }} = document.getElementById('resultChart-{{ run_id }}').getContext('2d');
+            const data{{ run_id }} = {{ status.result | tojson }};
+            const labels{{ run_id }} = data{{ run_id }}.map(r => r.code || r.name || '');
+            const scores{{ run_id }} = data{{ run_id }}.map(r => r.score || r.weight || 0);
+            new Chart(ctx{{ run_id }}, {
+                type: 'bar',
+                data: {
+                    labels: labels{{ run_id }},
+                    datasets: [{
+                        label: '评分/权重',
+                        data: scores{{ run_id }},
+                        backgroundColor: 'rgba(13, 110, 253, 0.6)',
+                        borderColor: 'rgba(13, 110, 253, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: '{{ status.strategy }} 策略评分' }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        </script>
+
+        {% else %}
+        <div class="text-muted">无结果数据</div>
+        {% endif %}
+    </div>
+</div>

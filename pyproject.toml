@@ -14,7 +14,15 @@ dependencies = [
     "requests>=2.31.0",
     "psutil>=7.2.2",
     "duckdb>=1.5.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27.0",
 ]
+
+[project.scripts]
+quant-dashboard = "quant_etf.dashboard.app:main"
 
 [tool.uv.sources]
 pytdx = { path = "docs/pytdx-1.72-py3-none-any.whl" }

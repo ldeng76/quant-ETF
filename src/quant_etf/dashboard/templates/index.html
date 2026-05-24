@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}总览 - 量化ETF看板{% endblock %}
+{% block content %}
+<div class="py-3" x-data="{
+    alertCount: '-',
+    marketStatus: { text: '-', type: '' }
+}" x-init="
+    // P1-4: 获取告警计数
+    fetch('/api/alerts/dashboard/stats')
+        .then(r => r.json())
+        .then(d => { alertCount = d.active || 0; })
+        .catch(() => { alertCount = '-'; });
+    // P1-5: 获取市场状态
+    fetch('/api/market/status')
+        .then(r => r.json())
+        .then(d => {
+            const typeMap = { '牛市': 'text-success', '熊市': 'text-danger', '震荡市': 'text-warning', '未知': 'text-secondary' };
+            marketStatus = {
+                text: d.market_type,
+                type: typeMap[d.market_type] || 'text-secondary'
+            };
+        })
+        .catch(() => { marketStatus = { text: '-', type: '' }; });
+">
+    <h4><i class="bi bi-speedometer2"></i> 总览</h4>
+    <p class="text-muted">最后更新: {{ now }}</p>
+
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="card text-bg-primary h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title">账户数</h6>
+                        <i class="bi bi-person-badge fs-3 opacity-50"></i>
+                    </div>
+                    <p class="card-text display-6">
+                        {{ account_count }}
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-bg-danger h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title">活跃告警</h6>
+                        <i class="bi bi-bell fs-3 opacity-50"></i>
+                    </div>
+                    <p class="card-text display-6" id="alert-count"
+                       x-text="alertCount">-</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-bg-success h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title">可用策略</h6>
+                        <i class="bi bi-bar-chart fs-3 opacity-50"></i>
+                    </div>
+                    <p class="card-text display-6">3</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-bg-info h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h6 class="card-title">市场状态</h6>
+                        <i class="bi bi-graph-up fs-3 opacity-50"></i>
+                    </div>
+                    <p class="card-text display-6" :class="marketStatus.type"
+                       x-text="marketStatus.text">-</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">最近策略结果</h6></div>
+                <div class="card-body p-0">
+                    <div class="text-muted small p-3">执行策略后显示结果</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">最新告警</h6></div>
+                <div class="card-body p-0" id="recent-alerts"
+                     hx-get="/api/alerts/dashboard" hx-trigger="load every 30s">
+                    <div class="text-muted small p-3">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

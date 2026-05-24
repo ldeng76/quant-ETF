@@ -1,0 +1,48 @@
+{% if schedules %}
+<table class="table table-sm table-hover mb-0">
+    <thead>
+        <tr>
+            <th>策略</th>
+            <th>间隔(秒)</th>
+            <th>状态</th>
+            <th>上次运行</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in schedules %}
+        <tr>
+            <td class="small">{{ s.strategy }}</td>
+            <td class="small">{{ s.interval }}</td>
+            <td>
+                {% if s.running %}
+                <span class="badge bg-success">运行中</span>
+                {% elif s.enabled %}
+                <span class="badge bg-warning text-dark">已启用</span>
+                {% else %}
+                <span class="badge bg-secondary">已停用</span>
+                {% endif %}
+            </td>
+            <td class="small text-muted">
+                {{ s.last_run_at[:19] if s.last_run_at else '-' }}
+            </td>
+            <td>
+                <button class="btn btn-sm btn-outline-{{ 'danger' if s.running else 'success' }}"
+                        hx-post="/api/market/schedules/{{ s.id }}/toggle"
+                        hx-target="#schedule-table">
+                    {{ '停止' if s.running else '启动' }}
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        hx-delete="/api/market/schedules/{{ s.id }}"
+                        hx-target="#schedule-table"
+                        hx-confirm="确认删除调度 '{{ s.strategy }}'？">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="text-muted text-center py-3 small">暂无调度配置，点击上方新增</div>
+{% endif %}

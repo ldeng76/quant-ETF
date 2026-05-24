@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}策略执行 - 量化ETF看板{% endblock %}
+{% block content %}
+<div class="py-3" x-data="{ runIds: [], polling: false }">
+    <h4><i class="bi bi-bar-chart"></i> 策略执行</h4>
+    <hr>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">选择策略</h5>
+            <div id="strategy-list">
+                <div class="spinner-border spinner-border-sm"></div> 加载策略列表...
+            </div>
+            <button class="btn btn-primary mt-2"
+                    hx-post="/api/strategy/run"
+                    hx-target="#strategy-result"
+                    hx-include="[name='strategies']"
+                    hx-indicator="#run-spinner"
+                    @htmx:config-request="
+                        const checked = document.querySelectorAll('input[name=strategies]:checked');
+                        event.detail.parameters.strategies = Array.from(checked).map(c => c.value);
+                    ">
+                <i class="bi bi-play-fill"></i> 执行选中策略
+            </button>
+            <span id="run-spinner" class="htmx-indicator">
+                <span class="spinner-border spinner-border-sm"></span> 执行中...
+            </span>
+        </div>
+    </div>
+
+    <div id="strategy-result">
+        <div class="text-muted small">选择策略后点击执行查看结果</div>
+    </div>
+</div>
+
+<script>
+    // 加载策略列表
+    (function() {
+        fetch('/api/strategy/strategies')
+            .then(r => r.json())
+            .then(strategies => {
+                const html = strategies.map(s => `
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" name="strategies" value="${s.name}" id="s-${s.name}">
+                        <label class="form-check-label" for="s-${s.name}">
+                            ${s.name} <small class="text-muted">${s.description}</small>
+                        </label>
+                    </div>
+                `).join('');
+                document.getElementById('strategy-list').innerHTML = html;
+            });
+    })();
+</script>
+{% endblock %}

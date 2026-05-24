@@ -1,0 +1,33 @@
+<div class="list-group list-group-flush">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>账户列表</strong>
+        <button class="btn btn-sm btn-outline-primary"
+                @click="$dispatch('open-account-modal', { mode: 'create' })">
+            <i class="bi bi-plus"></i> 新增
+        </button>
+    </div>
+    {% for account in accounts %}
+    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+        <a href="#" class="text-decoration-none flex-grow-1"
+           hx-get="/api/portfolio/accounts/{{ account.id }}/holdings"
+           hx-target="#holdings-table">
+            <strong>{{ account.name }}</strong>
+            <br><small class="text-muted">{{ account.broker }}</small>
+        </a>
+        <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-primary"
+                    @click="$dispatch('open-edit-account-modal', { account_id: {{ account.id }}, name: '{{ account.name }}', broker: '{{ account.broker }}', cash: {{ account.cash }} })">
+                <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-outline-danger"
+                    hx-delete="/api/portfolio/accounts/{{ account.id }}"
+                    hx-target="#account-list"
+                    hx-confirm="确认删除账户 '{{ account.name }}' 及其所有持仓？">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-muted small p-2">暂无账户，点击上方新增</div>
+    {% endfor %}
+</div>

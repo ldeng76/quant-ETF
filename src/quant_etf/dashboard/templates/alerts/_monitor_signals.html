@@ -1,0 +1,68 @@
+{% if signals %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover">
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>代码</th>
+                <th>策略</th>
+                <th>信号</th>
+                <th>方向</th>
+                <th>得分</th>
+                <th>入场价</th>
+                <th>市场</th>
+                <th>原因</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in signals %}
+            <tr>
+                <td class="small">{{ s.time[:19] if s.time else '-' }}</td>
+                <td class="small">{{ s.code or '-' }}</td>
+                <td class="small">{{ s.strategy_name or '-' }}</td>
+                <td>
+                    {% if s.signal_type == 'buy' %}
+                    <span class="badge bg-success">买入</span>
+                    {% elif s.signal_type == 'sell' %}
+                    <span class="badge bg-danger">卖出</span>
+                    {% else %}
+                    <span class="badge bg-secondary">{{ s.signal_type or '-' }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if s.direction == 'long' %}
+                    <span class="text-success">多</span>
+                    {% elif s.direction == 'short' %}
+                    <span class="text-danger">空</span>
+                    {% else %}
+                    <span class="text-muted">{{ s.direction or '-' }}</span>
+                    {% endif %}
+                </td>
+                <td class="small">{{ "%.2f"|format(s.score) if s.score is not none else '-' }}</td>
+                <td class="small">{{ "%.3f"|format(s.entry_price) if s.entry_price is not none else '-' }}</td>
+                <td>
+                    {% if s.market_state == '牛市' %}
+                    <span class="badge bg-success">牛市</span>
+                    {% elif s.market_state == '熊市' %}
+                    <span class="badge bg-danger">熊市</span>
+                    {% elif s.market_state == '震荡市' %}
+                    <span class="badge bg-warning text-dark">震荡</span>
+                    {% else %}
+                    <span class="badge bg-secondary">{{ s.market_state or '-' }}</span>
+                    {% endif %}
+                </td>
+                <td class="small text-muted">{{ (s.reason or '-')[:60] }}{% if s.reason and s.reason|length > 60 %}...{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="text-muted text-center py-4 small">
+    {% if not signals is defined %}
+    加载中...
+    {% else %}
+    暂无监控信号（DuckDB 数据源未连接或无数据）
+    {% endif %}
+</div>
+{% endif %}

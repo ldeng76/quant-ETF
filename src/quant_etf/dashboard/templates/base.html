@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}量化ETF看板{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.14.8/dist/cdn.min.js" defer></script>
+    <script src="https://unpkg.com/alpinejs@3.14.8" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        body { font-size: .875rem; background: #f8f9fa; }
+        .sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 100; padding: 56px 0 0; width: 200px; background: #fff; border-right: 1px solid #dee2e6; }
+        .sidebar .nav-link { font-weight: 500; color: #495057; padding: .5rem 1rem; border-radius: 0; }
+        .sidebar .nav-link:hover { background: #e9ecef; }
+        .sidebar .nav-link.active { color: #0d6efd; background: #e9ecef; }
+        .sidebar .nav-link i { margin-right: 8px; }
+        main { margin-left: 200px; padding-top: 56px; }
+        .htmx-indicator { opacity: 0; transition: opacity .3s; }
+        .htmx-request .htmx-indicator { opacity: 1; }
+        .htmx-request.htmx-indicator { opacity: 1; }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar navbar-dark bg-dark fixed-top" style="z-index: 1030;">
+        <div class="container-fluid px-3">
+            <a class="navbar-brand fw-bold" href="/pages/overview"
+               hx-get="/pages/overview" hx-target="#content" hx-push-url="true">
+                <i class="bi bi-graph-up"></i> quant-ETF看板
+            </a>
+            <div class="d-flex align-items-center">
+                <span class="text-light-emphasis small me-3" id="clock-display"></span>
+                <div id="sse-status" class="badge bg-success small">已连接</div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 侧边栏 -->
+    <nav class="sidebar d-none d-md-block">
+        <ul class="nav flex-column" x-data="{ active: 'overview' }">
+            <li class="nav-item">
+                <a class="nav-link" :class="{ active: active === 'overview' }" href="#"
+                   hx-get="/pages/overview" hx-target="#content" hx-push-url="true"
+                   @click.prevent="active = 'overview'; htmx.trigger(this, 'hx-get')">
+                    <i class="bi bi-speedometer2"></i> 总览
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" :class="{ active: active === 'portfolio' }" href="#"
+                   hx-get="/pages/portfolio" hx-target="#content" hx-push-url="true"
+                   @click.prevent="active = 'portfolio'; htmx.trigger(this, 'hx-get')">
+                    <i class="bi bi-folder"></i> 持仓
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" :class="{ active: active === 'strategy' }" href="#"
+                   hx-get="/pages/strategy" hx-target="#content" hx-push-url="true"
+                   @click.prevent="active = 'strategy'; htmx.trigger(this, 'hx-get')">
+                    <i class="bi bi-bar-chart"></i> 策略
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" :class="{ active: active === 'monitor' }" href="#"
+                   hx-get="/pages/monitor" hx-target="#content" hx-push-url="true"
+                   @click.prevent="active = 'monitor'; htmx.trigger(this, 'hx-get')">
+                    <i class="bi bi-eye"></i> 监控
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" :class="{ active: active === 'alerts' }" href="#"
+                   hx-get="/pages/alerts" hx-target="#content" hx-push-url="true"
+                   @click.prevent="active = 'alerts'; htmx.trigger(this, 'hx-get')">
+                    <i class="bi bi-bell"></i> 告警
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" :class="{ active: active === 'settings' }" href="#"
+                   hx-get="/pages/settings" hx-target="#content" hx-push-url="true"
+                   @click.prevent="active = 'settings'; htmx.trigger(this, 'hx-get')">
+                    <i class="bi bi-gear"></i> 设置
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main role="main" class="px-4" id="content">
+        {% block content %}
+        <div class="d-flex justify-content-center align-items-center" style="height: 60vh;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+        </div>
+        {% endblock %}
+    </main>
+
+    <!-- SSE 事件监听（原生 EventSource） -->
+    <div id="sse-events" style="display:none;"></div>
+
+    <script>
+        // 页面加载后默认跳转到总览
+        document.addEventListener('DOMContentLoaded', function() {
+            const content = document.getElementById('content');
+            const overviewLink = document.querySelector('a[hx-get="/pages/overview"]');
+            if (overviewLink && !window.location.pathname.startsWith('/pages/')) {
+                htmx.trigger(overviewLink, 'hx-get');
+            }
+            // 时钟
+            function updateClock() {
+                document.getElementById('clock-display').textContent = new Date().toLocaleTimeString('zh-CN');
+            }
+            setInterval(updateClock, 1000);
+            updateClock();
+        });
+
+        // SSE 连接（原生 EventSource）
+        (function() {
+            const evtSource = new EventSource('/events');
+            evtSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'strategy_result') {
+                        console.log('Strategy result:', data);
+                    } else if (data.type === 'alert') {
+                        const badge = document.getElementById('alert-count');
+                        if (badge) badge.textContent = parseInt(badge.textContent || '0') + 1;
+                    } else if (data.type === 'portfolio_update') {
+                        console.log('Portfolio update:', data);
+                    }
+                } catch(e) {}
+            };
+            evtSource.onerror = function() {
+                const statusBadge = document.getElementById('sse-status');
+                if (statusBadge) { statusBadge.textContent = '已断开'; statusBadge.className = 'badge bg-danger small'; }
+            };
+            evtSource.onopen = function() {
+                const statusBadge = document.getElementById('sse-status');
+                if (statusBadge) { statusBadge.textContent = '已连接'; statusBadge.className = 'badge bg-success small'; }
+            };
+        })();
+
+        // HTMX 事件监听
+        document.addEventListener('htmx:beforeSwap', function(evt) {
+            if (evt.detail.xhr.status === 404) {
+                evt.detail.shouldSwap = false;
+            }
+        });
+    </script>
+</body>
+</html>

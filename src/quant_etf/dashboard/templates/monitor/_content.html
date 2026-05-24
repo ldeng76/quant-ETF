@@ -1,0 +1,121 @@
+<div class="py-3" x-data="{
+    showScheduleModal: false,
+    scheduleForm: { strategy: '', interval: 300 },
+    resetScheduleForm() { this.scheduleForm = { strategy: '', interval: 300 } },
+}" x-on:open-schedule-modal.window="showScheduleModal = true; resetScheduleForm()">
+    <h4><i class="bi bi-eye"></i> 实时监控</h4>
+    <hr>
+
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="card text-bg-success">
+                <div class="card-body">
+                    <h6>运行状态</h6>
+                    <span id="monitor-status">🟢 活跃</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-bg-info">
+                <div class="card-body">
+                    <h6>定时策略</h6>
+                    <span id="schedule-count">加载中...</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-bg-secondary">
+                <div class="card-body">
+                    <h6>最近执行</h6>
+                    <span id="last-run">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>定时策略配置</span>
+            <button class="btn btn-sm btn-outline-primary"
+                    @click="$dispatch('open-schedule-modal')">
+                <i class="bi bi-plus"></i> 新增
+            </button>
+        </div>
+        <div class="card-body" id="schedule-table"
+             hx-get="/api/market/schedules"
+             hx-trigger="load every 10s">
+            <div class="spinner-border spinner-border-sm"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span>最新信号流 (SSE)</span>
+        </div>
+        <div class="card-body" style="max-height: 300px; overflow-y: auto;" id="signal-stream">
+            <div class="text-muted small">等待实时信号...</div>
+        </div>
+    </div>
+
+    <!-- 新增调度模态框 -->
+    <div x-show="showScheduleModal" x-cloak
+         style="position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;"
+         x-on:click.self="showScheduleModal = false">
+        <div class="bg-white rounded shadow p-4" style="min-width:400px;max-width:90vw;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">新增定时策略</h5>
+                <button class="btn-close" x-on:click="showScheduleModal = false"></button>
+            </div>
+            <form x-on:submit.prevent="
+                fetch('/api/market/schedules', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({strategy: scheduleForm.strategy, interval: parseInt(scheduleForm.interval)})
+                }).then(() => {
+                    htmx.ajax('GET', '/api/market/schedules', {target: '#schedule-table'});
+                    showScheduleModal = false;
+                });
+            ">
+                <div class="mb-2">
+                    <label class="form-label small">策略名称 *</label>
+                    <input type="text" name="strategy" class="form-control form-control-sm" x-model="scheduleForm.strategy" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">执行间隔（秒） *</label>
+                    <input type="number" name="interval" class="form-control form-control-sm" x-model="scheduleForm.interval" required min="60">
+                    <div class="form-text">最少 60 秒</div>
+                </div>
+                <div class="text-end">
+                    <button type="button" class="btn btn-sm btn-secondary" x-on:click="showScheduleModal = false">取消</button>
+                    <button type="submit" class="btn btn-sm btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 监听 SSE 信号流
+    (function() {
+        const evtSource = new EventSource('/events');
+        evtSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const stream = document.getElementById('signal-stream');
+            if (!stream) return;
+            const time = new Date().toLocaleTimeString('zh-CN');
+            const msg = document.createElement('div');
+            msg.className = 'small mb-1';
+            if (data.type === 'strategy_result') {
+                msg.innerHTML = `<span class="text-success">[${time}]</span> ${data.strategy} 执行完成`;
+            } else if (data.type === 'strategy_error') {
+                msg.innerHTML = `<span class="text-danger">[${time}]</span> ${data.strategy} 执行失败: ${data.error}`;
+            } else if (data.type === 'alert') {
+                msg.innerHTML = `<span class="text-warning">[${time}]</span> ⚠ ${data.title}`;
+            }
+            stream.prepend(msg);
+            while (stream.children.length > 50) {
+                stream.removeChild(stream.lastChild);
+            }
+        };
+    })();
+</script>

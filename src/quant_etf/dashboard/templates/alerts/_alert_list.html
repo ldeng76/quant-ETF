@@ -1,0 +1,68 @@
+{% if alerts %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover">
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>级别</th>
+                <th>类型</th>
+                <th>标题</th>
+                <th>消息</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr data-alert-status="{{ alert.status }}">
+                <td class="small">{{ alert.created_at[:19] }}</td>
+                <td>
+                    {% if alert.severity == 'danger' %}
+                    <span class="badge bg-danger">危险</span>
+                    {% elif alert.severity == 'warning' %}
+                    <span class="badge bg-warning text-dark">警告</span>
+                    {% else %}
+                    <span class="badge bg-info">信息</span>
+                    {% endif %}
+                </td>
+                <td class="small">{{ alert.alert_type }}</td>
+                <td class="small">{{ alert.title }}</td>
+                <td class="small text-muted">{{ alert.message[:50] }}{% if alert.message|length > 50 %}...{% endif %}</td>
+                <td>
+                    {% if alert.status == 'active' %}
+                    <span class="badge bg-danger">活跃</span>
+                    {% elif alert.status == 'acknowledged' %}
+                    <span class="badge bg-warning text-dark">已确认</span>
+                    {% else %}
+                    <span class="badge bg-success">已解决</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if alert.status == 'active' %}
+                    <button class="btn btn-sm btn-outline-warning"
+                            hx-put="/api/alerts/dashboard/{{ alert.id }}/status"
+                            hx-headers='{"Content-Type": "application/json"}'
+                            hx-body='{"status": "acknowledged"}'
+                            hx-target="#alert-list"
+                            hx-swap="outerHTML">
+                        确认
+                    </button>
+                    {% elif alert.status == 'acknowledged' %}
+                    <button class="btn btn-sm btn-outline-success"
+                            hx-put="/api/alerts/dashboard/{{ alert.id }}/status"
+                            hx-headers='{"Content-Type": "application/json"}'
+                            hx-body='{"status": "resolved"}'
+                            hx-target="#alert-list"
+                            hx-swap="outerHTML">
+                        解决
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="text-muted text-center py-4">暂无告警</div>
+{% endif %}

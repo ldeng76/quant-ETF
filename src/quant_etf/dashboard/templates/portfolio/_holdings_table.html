@@ -1,0 +1,130 @@
+{% if account %}
+<div x-data="{ editingId: null }">
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0">{{ account.name }}
+        <small class="text-muted">({{ account.broker }})</small>
+    </h5>
+    <div>
+        <button class="btn btn-sm btn-outline-info me-1"
+                hx-post="/api/portfolio/sync-prices"
+                hx-target="#holdings-table"
+                hx-swap="outerHTML"
+                hx-confirm="确认从分钟数据同步最新价格？">
+            <i class="bi bi-arrow-repeat"></i> 同步价格
+        </button>
+        <button class="btn btn-sm btn-outline-primary"
+                x-on:click="$dispatch('open-holding-modal', { mode: 'create', account_id: {{ account.id }} })">
+            <i class="bi bi-plus"></i> 新增持仓
+        </button>
+    </div>
+</div>
+<table class="table table-striped table-sm">
+    <thead>
+        <tr>
+            <th>代码</th>
+            <th>名称</th>
+            <th>数量</th>
+            <th>成本价</th>
+            <th>当前价</th>
+            <th>盈亏</th>
+            <th>策略</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for h in holdings %}
+        <tr x-data="{ isEditing: false }">
+            <!-- 显示模式 -->
+            <template x-if="!isEditing">
+                <tr>
+                    <td>{{ h.code }}</td>
+                    <td>{{ names.get(h.code, h.name) }}</td>
+                    <td>{{ h.quantity }}</td>
+                    <td>{{ "%.3f"|format(h.cost_price) }}</td>
+                    <td>
+                        {% if h.current_price %}
+                        {{ "%.3f"|format(h.current_price) }}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if h.current_price %}
+                        {% set pnl = (h.current_price - h.cost_price) * h.quantity %}
+                        {% set pnl_pct = (h.current_price - h.cost_price) / h.cost_price * 100 %}
+                        <span class="{{ 'text-success' if pnl >= 0 else 'text-danger' }}">
+                            {{ "%.2f"|format(pnl) }} ({{ "%.2f"|format(pnl_pct) }}%)
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ h.strategy }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary me-1"
+                                x-on:click="isEditing = true">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger"
+                                hx-delete="/api/portfolio/holdings/{{ h.id }}"
+                                hx-target="#holdings-table"
+                                hx-confirm="确认删除持仓 {{ h.code }}？">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>
+                </tr>
+            </template>
+            <!-- 编辑模式 -->
+            <template x-if="isEditing">
+                <tr>
+                    <td>{{ h.code }}</td>
+                    <td>{{ names.get(h.code, h.name) }}</td>
+                    <td><input type="number" name="quantity" class="form-control form-control-sm" value="{{ h.quantity }}"
+                               form="edit-form-{{ h.id }}" min="0"></td>
+                    <td><input type="number" step="0.001" name="cost_price" class="form-control form-control-sm" value="{{ h.cost_price }}"
+                               form="edit-form-{{ h.id }}" min="0"></td>
+                    <td>
+                        {% if h.current_price %}
+                        {{ "%.3f"|format(h.current_price) }}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if h.current_price %}
+                        {% set pnl = (h.current_price - h.cost_price) * h.quantity %}
+                        <span class="{{ 'text-success' if pnl >= 0 else 'text-danger' }}">{{ "%.2f"|format(pnl) }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td><input type="text" name="strategy" class="form-control form-control-sm" value="{{ h.strategy }}"
+                               form="edit-form-{{ h.id }}"></td>
+                    <td>
+                        <button class="btn btn-sm btn-success me-1"
+                                type="submit" form="edit-form-{{ h.id }}">
+                            <i class="bi bi-check"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" x-on:click="isEditing = false">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>
+                </tr>
+            </template>
+        </tr>
+        <!-- 隐藏的编辑表单 -->
+        <form id="edit-form-{{ h.id }}" class="d-none"
+              hx-put="/api/portfolio/holdings/{{ h.id }}"
+              hx-target="#holdings-table">
+        </form>
+        {% else %}
+        <tr>
+            <td colspan="8" class="text-center text-muted">暂无持仓数据</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="text-muted">请先在左侧选择一个账户</div>
+{% endif %}
