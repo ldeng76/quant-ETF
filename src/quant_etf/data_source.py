@@ -5,7 +5,7 @@ from pathlib import Path
 from loguru import logger
 from datetime import datetime, timedelta
 from quant_etf.conf import DATA_DIR, ETF_POOL
-from quant_etf.tdx import get_tdx_path, parse_tdx_day_file, get_security_bars
+from quant_etf.tdx import get_tdx_path, parse_tdx_day_file, get_security_bars, get_xdxr_info, adjust_price_qfq
 
 _collect_info_path = Path(__file__).parent.parent / "collect_info"
 if str(_collect_info_path) not in sys.path:
@@ -186,7 +186,7 @@ class ETFDataSource:
             else:
                 return last_date >= (today - timedelta(days=1))
 
-    def load_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True) -> pd.DataFrame:
+    def load_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True, adjust_qfq: bool = True) -> pd.DataFrame:
         """
         加载 ETF 数据
         优先级：本地 TDX 文件 > 缓存 > 在线获取
@@ -194,6 +194,7 @@ class ETFDataSource:
         :param force_update: 忽略，保留参数兼容
         :param check_freshness: 是否检查数据新鲜度
         :param allow_online: 是否允许在线获取数据（默认 True）
+        :param adjust_qfq: 是否进行前复权处理（默认 True）
         :return: DataFrame
         """
         # 1. 尝试从本地 TDX 文件加载
@@ -203,6 +204,9 @@ class ETFDataSource:
                 logger.info(f"Loading data for {code} from local TDX file: {tdx_path}")
                 df = parse_tdx_day_file(tdx_path)
                 if not df.empty:
+                    # 应用前复权处理
+                    if adjust_qfq:
+                        df = self._apply_qfq(code, df)
                     return df
             except Exception as e:
                 logger.error(f"Failed to load TDX data for {code}: {e}")
@@ -215,6 +219,9 @@ class ETFDataSource:
                 if not df.empty:
                     if not check_freshness or self.check_is_fresh(df):
                         logger.info(f"Loaded ETF data for {code} from cache (last: {df.index[-1].date()})")
+                        # 应用前复权处理
+                        if adjust_qfq:
+                            df = self._apply_qfq(code, df)
                         return df
             except Exception as e:
                 logger.error(f"Error reading cache for {code}: {e}")
@@ -225,6 +232,9 @@ class ETFDataSource:
                 logger.info(f"Fetching ETF data for {code} from online TDX server...")
                 df = get_security_bars(code)
                 if not df.empty:
+                    # 应用前复权处理
+                    if adjust_qfq:
+                        df = self._apply_qfq(code, df)
                     # 保存到缓存
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
                     df.to_csv(cache_path)
@@ -234,6 +244,26 @@ class ETFDataSource:
                 logger.error(f"Failed to fetch online data for {code}: {e}")
 
         raise RuntimeError(f"Failed to load ETF data for {code}. No TDX data found for {code}")
+
+    def _apply_qfq(self, code: str, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        对 ETF 数据应用前复权处理
+        :param code: ETF 代码
+        :param df: 原始日线数据
+        :return: 前复权后的数据
+        """
+        try:
+            # 获取除权除息信息
+            xdxr_df = get_xdxr_info(code)
+            if not xdxr_df.empty:
+                logger.info(f"Applying forward adjustment (前复权) for {code}")
+                df = adjust_price_qfq(df, xdxr_df)
+            else:
+                logger.info(f"No xdxr info available for {code}, skipping qfq adjustment")
+        except Exception as e:
+            logger.warning(f"Failed to apply qfq adjustment for {code}: {e}, using original data")
+        
+        return df
 
     def load_stock_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True) -> pd.DataFrame:
         """
@@ -299,6 +329,138 @@ class ETFDataSource:
                 missing_count += 1
                 logger.warning(f"No TDX data found for {code}")
         logger.info(f"Check completed. Found: {found_count}, Missing: {missing_count}")
+
+    @staticmethod
+    def _market_for_code(code: str) -> str:
+        """
+        统一的市场判定逻辑：5/6 -> sh, 0/1/3 -> sz。
+        与 quant_etf.tdx.code_to_market 对齐，避免再出现 1/5 误判为 sz 的历史问题。
+        """
+        code = str(code).strip().zfill(6)
+        if code.startswith(("5", "6")):
+            return "sh"
+        if code.startswith(("0", "1", "3")):
+            return "sz"
+        return "sz"
+
+    def refresh_stock_names(
+        self,
+        target_file: str | Path | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """
+        强制全量校准 stock_code_name.json：
+        - 取 ETF_POOL ∪ STOCK_POOL ∪ MID_TERM_STOCK_POOL 全集
+        - 用 SimpleStockAPI（新浪/腾讯/网易/东财级联）逐一查询权威名称
+        - 与现 JSON 比对，覆盖错误条目；market 字段统一用 _market_for_code 判定
+        - 查询失败的代码：保留 JSON 中已有条目，返回 failed 列表
+
+        :param target_file: 目标 JSON 文件路径 (默认: data/meta/stock_code_name.json)
+        :param dry_run: 仅生成报告，不写文件
+        :return: {"new": [...], "updated": [...], "unchanged": [...], "failed": [...]}
+                 其中 updated 元素为 {"code","old_name","new_name","old_market","new_market"}
+        """
+        from missing_code_finder import normalize_code
+        from simple_stock_api import SimpleStockAPI
+        from quant_etf.conf import ETF_POOL, STOCK_POOL, MID_TERM_STOCK_POOL
+
+        if target_file is None:
+            target_file = DATA_DIR / "meta" / "stock_code_name.json"
+        else:
+            target_file = Path(target_file)
+
+        all_codes = sorted({normalize_code(c) for c in (list(ETF_POOL) + list(STOCK_POOL) + list(MID_TERM_STOCK_POOL))})
+        logger.info(f"开始全量校准股票代码名称，目标文件: {target_file}，共 {len(all_codes)} 个代码 (dry_run={dry_run})")
+
+        # 加载现有 JSON
+        existing_items: list[dict] = []
+        if target_file.exists():
+            try:
+                loaded = json.loads(target_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, list):
+                    existing_items = loaded
+            except Exception as e:
+                logger.warning(f"现有 JSON 解析失败，将视为空: {e}")
+                existing_items = []
+        existing_map: dict[str, dict] = {}
+        for it in existing_items:
+            code = it.get("code")
+            if code:
+                existing_map[normalize_code(code)] = it
+
+        # 在线查询
+        api = SimpleStockAPI()
+        results = api.batch_query(all_codes, delay=0.3)
+
+        new_list: list[dict] = []
+        updated_list: list[dict] = []
+        unchanged_list: list[str] = []
+        failed_list: list[str] = []
+
+        # 以 code 为 key 汇总最终条目
+        final_map: dict[str, dict] = dict(existing_map)  # 先继承旧值
+
+        for r in results:
+            code = normalize_code(r.get("code", ""))
+            if not code:
+                continue
+            new_name = r.get("name")
+            new_market = self._market_for_code(code)
+
+            if not new_name:
+                failed_list.append(code)
+                logger.warning(f"查询失败，保留旧条目: {code}")
+                continue
+
+            old = existing_map.get(code)
+            new_item = {"code": code, "name": new_name, "market": new_market}
+
+            if old is None:
+                new_list.append(code)
+                final_map[code] = new_item
+                logger.info(f"新增: {code} -> {new_name} ({new_market})")
+            else:
+                old_name = old.get("name", "")
+                old_market = old.get("market", "")
+                if old_name != new_name or old_market != new_market:
+                    updated_list.append({
+                        "code": code,
+                        "old_name": old_name,
+                        "new_name": new_name,
+                        "old_market": old_market,
+                        "new_market": new_market,
+                    })
+                    final_map[code] = new_item
+                    logger.warning(
+                        f"覆盖: {code}  name: '{old_name}' -> '{new_name}'  market: '{old_market}' -> '{new_market}'"
+                    )
+                else:
+                    unchanged_list.append(code)
+
+        report = {
+            "new": new_list,
+            "updated": updated_list,
+            "unchanged": unchanged_list,
+            "failed": failed_list,
+        }
+        logger.info(
+            f"校准报告: new={len(new_list)} updated={len(updated_list)} "
+            f"unchanged={len(unchanged_list)} failed={len(failed_list)}"
+        )
+
+        if dry_run:
+            logger.info("dry_run=True，未写入文件")
+            return report
+
+        # 原子写入
+        all_items = sorted(final_map.values(), key=lambda x: x.get("code", ""))
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = target_file.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(all_items, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(target_file)
+        logger.info(f"已写入 {len(all_items)} 条记录到 {target_file}")
+
+        return report
 
     def backfill_stock_names(self, target_file: str | Path | None = None) -> dict:
         """

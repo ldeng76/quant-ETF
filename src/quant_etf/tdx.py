@@ -20,6 +20,8 @@ CUSTOM_HQ_HOSTS = [
 
 # 全局工作服务器缓存
 _cached_server: tuple[str, int] | None = None
+_failed_servers: set[tuple[str, int]] = set()  # 记录失败的服务器
+_xdxr_cache: dict[str, pd.DataFrame] = {}  # 缓存xdxr数据
 
 
 def _get_cached_server() -> tuple[str, int] | None:
@@ -372,3 +374,172 @@ def parse_tdx_day_file(file_path: Path | str) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"Failed to parse TDX file {path}: {e}")
         return pd.DataFrame()
+
+
+def get_xdxr_info(code: str) -> pd.DataFrame:
+    """
+    获取股票的除权除息信息（带缓存和失败记录优化）
+    :param code: 证券代码 (e.g. "510050", "000001")
+    :return: DataFrame 包含除权除息信息
+    """
+    # 先检查缓存
+    if code in _xdxr_cache:
+        logger.debug(f"Using cached xdxr info for {code}")
+        return _xdxr_cache[code]
+    
+    market = code_to_market(code)
+    
+    # 尝试使用缓存的服务器（如果之前失败过则跳过）
+    cached = _get_cached_server()
+    if cached and cached not in _failed_servers:
+        server, port = cached
+        try:
+            api = TdxHq_API()
+            if api.connect(server, port):
+                try:
+                    xdxr_data = api.get_xdxr_info(market, code)
+                    if xdxr_data:
+                        df = api.to_df(xdxr_data)
+                        logger.info(f"Successfully fetched xdxr info for {code} from cached server")
+                        _xdxr_cache[code] = df
+                        return df
+                finally:
+                    api.disconnect()
+        except Exception as e:
+            logger.debug(f"Failed to fetch xdxr from cached server: {e}")
+            _failed_servers.add(cached)
+    
+    # 尝试其他服务器（跳过已失败的）
+    from pytdx.config.hosts import hq_hosts
+    for host_info in CUSTOM_HQ_HOSTS[:3] + list(hq_hosts)[:2]:
+        if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
+            server = str(host_info[1])
+            port = int(host_info[2])
+            server_key = (server, port)
+        else:
+            continue
+        
+        # 跳过已失败的服务器
+        if server_key in _failed_servers:
+            logger.debug(f"Skipping failed server {server}:{port}")
+            continue
+        
+        try:
+            api = TdxHq_API()
+            # 设置连接超时为2秒，避免长时间等待
+            if api.connect(server, port, time_out=2.0):
+                try:
+                    xdxr_data = api.get_xdxr_info(market, code)
+                    if xdxr_data:
+                        df = api.to_df(xdxr_data)
+                        logger.info(f"Successfully fetched xdxr info for {code} from {server}:{port}")
+                        _set_cached_server(server, port)
+                        _xdxr_cache[code] = df
+                        return df
+                    else:
+                        # 服务器连接成功但无数据
+                        _xdxr_cache[code] = pd.DataFrame()
+                        return pd.DataFrame()
+                finally:
+                    api.disconnect()
+            else:
+                # 连接失败，记录到失败集合
+                _failed_servers.add(server_key)
+                logger.debug(f"Failed to connect to {server}:{port}")
+        except Exception as e:
+            logger.debug(f"Failed to fetch xdxr from {server}:{port}: {e}")
+            _failed_servers.add(server_key)
+    
+    logger.warning(f"Failed to fetch xdxr info for {code} after trying all available servers")
+    return pd.DataFrame()
+
+
+def adjust_price_qfq(df: pd.DataFrame, xdxr_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    对价格数据进行前复权处理
+    :param df: 原始日线数据 DataFrame (必须有 close 列)
+    :param xdxr_df: 除权除息信息 DataFrame
+    :return: 前复权后的 DataFrame
+    """
+    if df.empty or xdxr_df.empty:
+        logger.warning("No data to adjust, returning original data")
+        return df
+    
+    # 确保日期索引（只保留日期，去掉时间）
+    df = df.copy()
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"]).normalize()
+        df.set_index("date", inplace=True)
+    else:
+        # 如果索引是DatetimeIndex包含时间，normalize到日期
+        if hasattr(df.index, 'normalize'):
+            df.index = df.index.normalize()
+    
+    # 处理 xdxr_df 的日期
+    xdxr_df = xdxr_df.copy()
+    # pytdx 返回的 xdxr 数据有 year, month, day 列，需要构建 date
+    if "year" in xdxr_df.columns and "month" in xdxr_df.columns and "day" in xdxr_df.columns:
+        xdxr_df["date"] = pd.to_datetime(
+            xdxr_df["year"].astype(str) + "-" + 
+            xdxr_df["month"].astype(str).str.zfill(2) + "-" + 
+            xdxr_df["day"].astype(str).str.zfill(2)
+        )
+        xdxr_df.set_index("date", inplace=True)
+    elif "date" in xdxr_df.columns:
+        xdxr_df["date"] = pd.to_datetime(xdxr_df["date"])
+        xdxr_df.set_index("date", inplace=True)
+    elif "datetime" in xdxr_df.columns:
+        xdxr_df["date"] = pd.to_datetime(xdxr_df["datetime"])
+        xdxr_df.set_index("date", inplace=True)
+    
+    # 筛选有效的除权数据（category=1, 11 等表示除权除息）
+    if "category" in xdxr_df.columns:
+        # category 1: 除权除息, 11: 可能是其他类型的除权事件
+        xdxr_df = xdxr_df[xdxr_df["category"].isin([1, 11])]
+    
+    if xdxr_df.empty:
+        logger.info("No xdxr events found, returning original data")
+        return df
+    
+    # 初始化复权因子为 1.0
+    df["adj_factor"] = 1.0
+    
+    # 按时间倒序处理除权事件（从最新到最旧）
+    xdxr_sorted = xdxr_df.sort_index(ascending=False)
+    
+    for xdxr_date, xdxr_row in xdxr_sorted.iterrows():
+        # 找到除权日在 df 中的位置
+        if xdxr_date in df.index:
+            # 获取除权日之前的收盘价（前一个交易日）
+            mask_before = df.index < xdxr_date
+            if mask_before.any():
+                # 除权日前一天的收盘价
+                last_close_before = df.loc[mask_before, "close"].iloc[-1]
+                # 除权日的收盘价
+                close_on_xdxr = df.loc[xdxr_date, "close"]
+                
+                # 计算前复权因子
+                # 前复权：保持最新价格不变，调整历史价格
+                # 历史价格 = 原始价格 × (除权日收盘价 / 除权日前收盘价)
+                if last_close_before > 0:
+                    factor = close_on_xdxr / last_close_before
+                    
+                    # 对除权日之前的所有数据应用这个因子
+                    df.loc[mask_before, "adj_factor"] *= factor
+    
+    # 应用前复权因子到价格
+    price_columns = ["open", "high", "low", "close"]
+    for col in price_columns:
+        if col in df.columns:
+            df[col] = df[col] * df["adj_factor"]
+    
+    # 删除临时列
+    if "adj_factor" in df.columns:
+        df.drop(columns=["adj_factor"], inplace=True)
+    
+    # 重新计算涨跌幅（基于复权后的价格）
+    df["pct_chg"] = df["close"].pct_change() * 100
+    df["pct_chg"] = df["pct_chg"].fillna(0.0)
+    
+    logger.info(f"Applied forward adjustment (前复权) to {len(xdxr_sorted)} xdxr events")
+    return df
