@@ -208,10 +208,11 @@ def get_next_trading_time() -> datetime:
     return next_day.replace(hour=9, minute=30, second=0, microsecond=0)
 
 
-def wait_until_trading_start(check_interval: int = 60) -> bool:
+def wait_until_trading_start(check_interval: int = 60, should_stop=None) -> bool:
     """
     等待直到交易时间开始
     :param check_interval: 检查间隔（秒）
+    :param should_stop: 可选的回调函数，返回 True 时中断等待
     :return: True 如果进入交易时间，False 如果被中断
     """
     import time as time_module
@@ -219,12 +220,22 @@ def wait_until_trading_start(check_interval: int = 60) -> bool:
     logger.info("Waiting for trading session to start...")
 
     while not is_trading_time():
+        if should_stop and should_stop():
+            logger.info("Shutdown requested, stopping wait...")
+            return False
+
         next_time = get_next_trading_time()
         wait_seconds = (next_time - datetime.now()).total_seconds()
 
         if wait_seconds > 0:
             logger.info(f"Next trading session starts at {next_time}, waiting {wait_seconds:.0f} seconds...")
-            time_module.sleep(min(wait_seconds, check_interval))
+            sleep_duration = min(wait_seconds, check_interval)
+            # 分段睡眠，方便响应中断
+            for _ in range(int(sleep_duration)):
+                if should_stop and should_stop():
+                    logger.info("Shutdown requested, stopping wait...")
+                    return False
+                time_module.sleep(1)
         else:
             time_module.sleep(check_interval)
 

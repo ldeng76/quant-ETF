@@ -117,8 +117,7 @@ def cmd_minute_collect(args):
         try:
             if not is_trading_time():
                 logger.info(f"Outside trading hours, waiting... ({datetime.now()})")
-                wait_until_trading_start(check_interval=60)
-                if not running:
+                if not wait_until_trading_start(check_interval=60, should_stop=lambda: not running):
                     break
 
             current_time = datetime.now().strftime("%H:%M:%S")
@@ -127,7 +126,8 @@ def cmd_minute_collect(args):
             result = collect_minute_data_for_all(codes=ALL_POOL, count=500)
             logger.info(f"Collection completed: {result}")
 
-            for i in range(60):
+            # 等待约 60 秒再采集下一轮，每秒检查一次中断
+            for _ in range(60):
                 if not running:
                     break
                 time.sleep(1)
