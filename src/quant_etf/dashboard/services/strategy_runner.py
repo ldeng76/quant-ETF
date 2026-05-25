@@ -47,6 +47,8 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
             if not task:
                 raise ValueError(f"Unknown strategy: {strategy_name}")
 
+            _running_tasks[run_id]["title"] = getattr(task, "title", strategy_name)
+
             _running_tasks[run_id]["progress"] = 30
             task.initialize()
 
@@ -92,6 +94,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
                                         "title": a.get("title", ""),
                                         "message": a.get("message", ""),
                                         "strategy": strategy_name,
+                                        "strategy_title": _running_tasks[run_id].get("title", strategy_name),
                                         "run_id": run_id,
                                         "timestamp": datetime.now().isoformat(),
                                     }),
@@ -116,6 +119,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
                         "type": "strategy_error",
                         "run_id": run_id,
                         "strategy": strategy_name,
+                        "strategy_title": _running_tasks[run_id].get("title", strategy_name),
                         "error": str(e),
                         "timestamp": datetime.now().isoformat(),
                     }),

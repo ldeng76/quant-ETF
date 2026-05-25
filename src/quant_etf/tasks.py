@@ -198,6 +198,7 @@ class ETFTask(BaseTask):
 
     name = "etf"
     description = "ETF 组合选股任务"
+    title = "ETF 组合"
 
     def get_pool(self) -> List[str]:
         return ETF_POOL
@@ -316,6 +317,7 @@ class ShortTermStockTask(BaseTask):
 
     name = "short"
     description = "短线股票选股任务"
+    title = "短线股票"
 
     def get_pool(self) -> List[str]:
         return STOCK_POOL
@@ -380,6 +382,7 @@ class MidTermReboundTask(BaseTask):
 
     name = "mid"
     description = "中期反弹股票选股任务"
+    title = "中期反弹"
 
     def get_pool(self) -> List[str]:
         return MID_TERM_STOCK_POOL
@@ -470,7 +473,7 @@ class TaskRegistry:
         列出所有可用任务
         """
         return [
-            {"name": name, "description": task_class.description}
+            {"name": name, "description": task_class.description, "title": getattr(task_class, "title", task_class.description)}
             for name, task_class in cls._tasks.items()
         ]
 

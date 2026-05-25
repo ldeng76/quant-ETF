@@ -95,7 +95,7 @@
                     <select name="strategy" class="form-select form-select-sm" x-model="scheduleForm.strategy" required>
                         <option value="" disabled>请选择策略</option>
                         <template x-for="s in strategies" :key="s.name">
-                            <option :value="s.name" x-text="s.name + ' - ' + s.description"></option>
+                            <option :value="s.name" x-text="s.title + '（' + s.name + '）'"></option>
                         </template>
                     </select>
                 </div>
@@ -172,9 +172,11 @@
             if (data.type === 'connected') {
                 msg.innerHTML = `<span class="text-success">[${time}]</span> ✓ SSE 连接成功`;
             } else if (data.type === 'strategy_result') {
-                msg.innerHTML = `<span class="text-success">[${time}]</span> ${data.strategy} 执行完成`;
+                const title = data.strategy_title || data.strategy;
+                msg.innerHTML = `<span class="text-success">[${time}]</span> ${title} 执行完成`;
             } else if (data.type === 'strategy_error') {
-                msg.innerHTML = `<span class="text-danger">[${time}]</span> ${data.strategy} 执行失败: ${data.error}`;
+                const title = data.strategy_title || data.strategy;
+                msg.innerHTML = `<span class="text-danger">[${time}]</span> ${title} 执行失败: ${data.error}`;
             } else if (data.type === 'alert') {
                 msg.innerHTML = `<span class="text-warning">[${time}]</span> ⚠ ${data.title}`;
             } else {

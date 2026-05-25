@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 from loguru import logger
 
-from .strategy_runner import run_strategy
+from .strategy_runner import run_strategy, get_task_status
 from .sse_manager import sse_manager
 from ..db import query, execute
 
@@ -32,10 +32,13 @@ class Scheduler:
                 )
 
                 # SSE 广播结果
+                status = get_task_status(run_id)
+                title = status.get("title", strategy) if status else strategy
                 await sse_manager.broadcast({
                     "type": "strategy_result",
                     "schedule_id": schedule_id,
                     "strategy": strategy,
+                    "strategy_title": title,
                     "run_id": run_id,
                     "timestamp": datetime.now().isoformat(),
                 })
@@ -46,6 +49,7 @@ class Scheduler:
                     "type": "strategy_error",
                     "schedule_id": schedule_id,
                     "strategy": strategy,
+                    "strategy_title": title,
                     "error": str(e),
                 })
 

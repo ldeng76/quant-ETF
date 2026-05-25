@@ -12,6 +12,21 @@ from ..services.scheduler import scheduler
 from ..services.strategy_runner import list_available_strategies
 from quant_etf.market_analyzer import get_market_state, MarketType
 
+# 策略英文名 → 中文显示名映射
+_STRATEGY_TITLE_MAP = {
+    "etf": "ETF 组合",
+    "short": "短线股票",
+    "mid": "中期反弹",
+}
+
+
+def _enrich_schedules_with_title(schedules):
+    """为每个调度记录添加 strategy_title 字段"""
+    for s in schedules:
+        s["running"] = scheduler.is_running(s["id"])
+        s["strategy_title"] = _STRATEGY_TITLE_MAP.get(s["strategy"], s["strategy"])
+    return schedules
+
 router = APIRouter(tags=["market"])
 
 
@@ -56,8 +71,7 @@ async def overview_data(request: Request):
 async def list_schedules(request: Request):
     """列出调度配置（HTML 片段）"""
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
-    for s in schedules:
-        s["running"] = scheduler.is_running(s["id"])
+    _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
         request, "monitor/_schedule_table.html",
         {"schedules": schedules}
@@ -72,8 +86,7 @@ async def create_schedule(request: Request, data: ScheduleCreate):
         [data.strategy, data.interval]
     )
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
-    for s in schedules:
-        s["running"] = scheduler.is_running(s["id"])
+    _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
         request, "monitor/_schedule_table.html",
         {"schedules": schedules}
@@ -86,8 +99,7 @@ async def delete_schedule(request: Request, schedule_id: int):
     await scheduler.stop(schedule_id)
     execute("DELETE FROM schedules WHERE id = ?", [schedule_id])
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
-    for s in schedules:
-        s["running"] = scheduler.is_running(s["id"])
+    _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
         request, "monitor/_schedule_table.html",
         {"schedules": schedules}
@@ -107,8 +119,7 @@ async def toggle_schedule(request: Request, schedule_id: int):
         execute("UPDATE schedules SET enabled = 1 WHERE id = ?", [schedule_id])
         asyncio.create_task(scheduler.start_loop(schedule_id, s["strategy"], s["interval"]))
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
-    for sc in schedules:
-        sc["running"] = scheduler.is_running(sc["id"])
+    _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
         request, "monitor/_schedule_table.html",
         {"schedules": schedules}

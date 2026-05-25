@@ -1,6 +1,6 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span>执行结果: {{ status.strategy }} ({{ run_id }})</span>
+        <span>执行结果: {{ status.title or status.strategy }} ({{ run_id }})</span>
         <span class="badge {{ 'bg-success' if status.status == 'complete' else 'bg-warning' }}">
             {{ status.status }}
         </span>
