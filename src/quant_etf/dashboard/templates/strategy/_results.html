@@ -40,7 +40,27 @@
                 <thead>
                     <tr>
                         {% for key in status.result[0].keys() %}
-                        <th>{{ key }}</th>
+                        <th>
+                            {# 字段名中文映射 #}
+                            {% set col_map = {
+                                'date': '日期',
+                                'code': '代码',
+                                'name': '名称',
+                                'score': '得分',
+                                'r60': '60日涨幅',
+                                'r20': '20日涨幅',
+                                'r10': '10日涨幅',
+                                'r5': '5日涨幅',
+                                'target_weight': '目标权重',
+                                'volume_ratio_1d_20d': '成交量比率(1d/20d)',
+                                'trend_ok': '趋势达标',
+                                'drawdown_from_120d_high': '距120日高点回撤',
+                                'bounce_from_20d_low': '距20日低点反弹',
+                                'stabilization_ok': '企稳达标',
+                                'rebound_ok': '反弹达标'
+                            } %}
+                            {{ col_map[key] if key in col_map else key }}
+                        </th>
                         {% endfor %}
                     </tr>
                 </thead>
