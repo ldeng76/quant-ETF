@@ -19,9 +19,53 @@ from pytdx.config import hosts
 from quant_etf.conf import DATA_DIR, ALL_POOL
 from quant_etf.tdx import CUSTOM_HQ_HOSTS
 import time as time_module
+import psutil
+import subprocess as _subprocess
 
 _server_failures: dict[str, float] = {}
 SERVER_COOLDOWN = 120
+
+
+def get_local_tdx_server() -> tuple[str, int] | None:
+    """
+    通过本地运行的通达信进程自动发现行情服务器地址
+    :return: (ip, port) 元组，如果未找到则返回 None
+    """
+    # 查找通达信主进程 PID
+    tdx_pid = None
+    for proc in psutil.process_iter(["pid", "name"]):
+        try:
+            if proc.info["name"] and "tdxw.exe" == proc.info["name"].lower():
+                tdx_pid = proc.pid
+                break
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    if not tdx_pid:
+        logger.debug("TdxW.exe process not found")
+        return None
+
+    # 通过 netstat 查找连接到 7709 端口的连接
+    try:
+        result = _subprocess.run(
+            f'netstat -ano | findstr "{tdx_pid}" | findstr "7709"',
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.stdout.strip():
+            for line in result.stdout.strip().split("\n"):
+                parts = line.split()
+                if len(parts) >= 3 and parts[3] == "ESTABLISHED":
+                    remote = parts[2]
+                    ip, port = remote.rsplit(":", 1)
+                    logger.info(f"Discovered TDX server from local process: {ip}:{port}")
+                    return ip, int(port)
+    except Exception as e:
+        logger.debug(f"Failed to discover TDX server from local process: {e}")
+
+    return None
 
 
 def code_to_market(code: str) -> int:
@@ -58,6 +102,23 @@ def get_minute_bars(
 
     if server is not None:
         return _get_minute_bars_single_server(code, market, count, server, port)
+
+    # Priority 1: Try server discovered from local TDX process
+    local_server = get_local_tdx_server()
+    if local_server:
+        ls_ip, ls_port = local_server
+        server_key = f"{ls_ip}:{ls_port}"
+        current_time = time_module.time()
+        # Only skip if recently failed
+        if server_key not in _server_failures or current_time - _server_failures[server_key] >= SERVER_COOLDOWN:
+            result = _get_minute_bars_single_server(code, market, count, ls_ip, ls_port)
+            if result:
+                if server_key in _server_failures:
+                    del _server_failures[server_key]
+                return result
+            else:
+                _server_failures[server_key] = current_time
+                logger.warning(f"Local TDX server {server_key} failed, falling back to configured list")
 
     current_time = time_module.time()
 
@@ -110,7 +171,7 @@ def _get_minute_bars_single_server(
     port: int,
 ) -> list[dict]:
     """
-    从单个服务器获取分钟级K线数据
+    从单个服务器获取分钟级K线数据（分批获取）
     :return: list of dicts 包含分钟级K线数据
     """
     try:
@@ -120,13 +181,22 @@ def _get_minute_bars_single_server(
             return []
 
         try:
-            bars = api.get_security_bars(8, market, code, 0, count)
-            if not bars:
+            # pytdx 单次最多返回约 800 条，分批获取
+            batch_size = 500
+            all_bars = []
+            for start in range(0, count, batch_size):
+                n = min(batch_size, count - start)
+                bars = api.get_security_bars(8, market, code, start, n)
+                if not bars:
+                    break
+                all_bars.extend(bars)
+
+            if not all_bars:
                 logger.debug(f"No minute bars returned for {code} from {server}:{port}")
                 return []
 
             data = []
-            for bar in bars:
+            for bar in all_bars:
                 dt = bar.get("datetime", "")
                 if dt:
                     try:
@@ -144,7 +214,7 @@ def _get_minute_bars_single_server(
                     })
 
             data.sort(key=lambda x: x["time"] if x.get("time") else "")
-            logger.info(f"Successfully fetched minute bars for {code} from {server}:{port}")
+            logger.info(f"Successfully fetched {len(data)} minute bars for {code} from {server}:{port}")
             return data
 
         finally:

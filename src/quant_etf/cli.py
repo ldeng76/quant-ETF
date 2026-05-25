@@ -9,6 +9,7 @@ Commands:
     daily-run         运行每日选股任务
     dashboard         启动 Dashboard 监控系统
     minute-collect    启动分钟级K线数据采集器
+    minute-backfill   补采历史分钟级K线数据
     backfill          批量补跑历史日期任务
     restart-dashboard 一键重启 Dashboard 服务
     run               运行单个选股任务
@@ -139,6 +140,111 @@ def cmd_minute_collect(args):
             time.sleep(60)
 
     logger.info("Minute Data Collector Stopped")
+
+
+def cmd_minute_backfill(args):
+    from loguru import logger
+    from datetime import timedelta as _timedelta
+
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    logger.add(log_dir / "minute_backfill_{time:YYYY-MM-DD}.log", rotation="10 MB", encoding="utf-8")
+
+    from quant_etf.conf import ALL_POOL
+    from quant_etf.minute_collector import (
+        get_minute_bars,
+        save_minute_data_from_dicts,
+        load_minute_data,
+    )
+
+    # 解析日期范围
+    if args.start and args.end:
+        start_dt = datetime.strptime(args.start, "%Y-%m-%d")
+        end_dt = datetime.strptime(args.end, "%Y-%m-%d")
+    elif args.start:
+        start_dt = datetime.strptime(args.start, "%Y-%m-%d")
+        end_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    elif args.end:
+        end_dt = datetime.strptime(args.end, "%Y-%m-%d")
+        start_dt = end_dt - _timedelta(days=args.days * 2)
+    else:
+        end_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start_dt = end_dt - _timedelta(days=args.days * 2)
+
+    trading_dates = []
+    current = start_dt
+    while current <= end_dt:
+        if current.weekday() < 5:
+            trading_dates.append(current)
+        current += _timedelta(days=1)
+
+    if not trading_dates:
+        logger.warning("未找到交易日，退出")
+        return
+
+    codes = args.codes.split(",") if args.codes else list(ALL_POOL)
+    bars_per_day = 250
+    total_bars_needed = len(trading_dates) * bars_per_day
+
+    logger.info("=" * 60)
+    logger.info("分钟级K线数据补采")
+    logger.info(f"日期范围: {trading_dates[0].strftime('%Y-%m-%d')} ~ {trading_dates[-1].strftime('%Y-%m-%d')}")
+    logger.info(f"交易日: {len(trading_dates)} 天")
+    logger.info(f"标的数: {len(codes)}")
+    logger.info(f"每只目标条数: ~{total_bars_needed}")
+    logger.info("=" * 60)
+
+    stats = {"total": len(codes), "success": 0, "failed": 0, "total_bars": 0}
+
+    for i, code in enumerate(codes, 1):
+        logger.info(f"[{i}/{len(codes)}] 补采 {code} ...")
+
+        try:
+            existing = load_minute_data(code=code, limit=1)
+            if not existing.empty:
+                earliest_in_range = load_minute_data(code=code, start_time=trading_dates[0], limit=99999)
+                if not earliest_in_range.empty and earliest_in_range.index.min() <= trading_dates[0]:
+                    logger.info(f"  数据已完整，跳过")
+                    stats["success"] += 1
+                    continue
+                logger.info(f"  数据库中最新: {existing.index.max()}")
+        except Exception:
+            pass
+
+        try:
+            bars = get_minute_bars(code, count=total_bars_needed)
+            if not bars:
+                stats["failed"] += 1
+                logger.warning(f"  无数据")
+                continue
+
+            bars_in_range = [
+                b for b in bars
+                if isinstance(b.get("time"), datetime) and trading_dates[0] <= b["time"] <= trading_dates[-1].replace(hour=23, minute=59)
+            ]
+
+            if not bars_in_range:
+                stats["failed"] += 1
+                logger.warning(f"  目标日期范围内无数据")
+                continue
+
+            logger.info(f"  目标范围内 {len(bars_in_range)} 条")
+
+            if save_minute_data_from_dicts(code, bars_in_range):
+                stats["success"] += 1
+                stats["total_bars"] += len(bars_in_range)
+            else:
+                stats["failed"] += 1
+                logger.warning(f"  保存失败")
+
+        except Exception as e:
+            stats["failed"] += 1
+            logger.error(f"  错误: {e}")
+
+    logger.info(f"\n补采完成!")
+    logger.info(f"  成功: {stats['success']}/{stats['total']}")
+    logger.info(f"  失败: {stats['failed']}/{stats['total']}")
+    logger.info(f"  总数据: {stats['total_bars']} 条")
 
 
 def cmd_backfill(args):
@@ -339,6 +445,12 @@ def build_parser():
 
     sub.add_parser("minute-collect", help="启动分钟级K线数据采集器")
 
+    p = sub.add_parser("minute-backfill", help="补采历史分钟级K线数据")
+    p.add_argument("--days", type=int, default=30, help="最近N个交易日 (默认: 30)")
+    p.add_argument("--start", type=str, help="开始日期 (格式: YYYY-MM-DD)")
+    p.add_argument("--end", type=str, help="结束日期 (格式: YYYY-MM-DD)")
+    p.add_argument("--codes", type=str, help="逗号分隔的标的代码 (默认: ALL_POOL)")
+
     p = sub.add_parser("backfill", help="批量补跑历史日期任务")
     p.add_argument("start_date", type=str, help="开始日期 (格式: YYYY-MM-DD)")
     p.add_argument("end_date", type=str, help="结束日期 (格式: YYYY-MM-DD)")
@@ -405,6 +517,7 @@ COMMANDS = {
     "daily-run": cmd_daily_run,
     "dashboard": cmd_dashboard,
     "minute-collect": cmd_minute_collect,
+    "minute-backfill": cmd_minute_backfill,
     "backfill": cmd_backfill,
     "restart-dashboard": cmd_restart_dashboard,
     "run": cmd_run,
