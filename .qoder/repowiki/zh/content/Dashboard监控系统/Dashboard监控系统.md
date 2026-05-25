@@ -17,7 +17,17 @@
 - [src/quant_etf/dashboard/services/strategy_runner.py](file://src/quant_etf/dashboard/services/strategy_runner.py)
 - [src/quant_etf/dashboard/services/alert_engine.py](file://src/quant_etf/dashboard/services/alert_engine.py)
 - [src/quant_etf/dashboard/services/portfolio_sync.py](file://src/quant_etf/dashboard/services/portfolio_sync.py)
+- [src/quant_etf/dashboard/templates/strategy/index.html](file://src/quant_etf/dashboard/templates/strategy/index.html)
+- [src/quant_etf/dashboard/templates/strategy/_content.html](file://src/quant_etf/dashboard/templates/strategy/_content.html)
+- [src/quant_etf/dashboard/templates/strategy/_results.html](file://src/quant_etf/dashboard/templates/strategy/_results.html)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 更新了策略执行界面部分，反映从Chart.js图表改为静态HTML表格的变更
+- 更新了前端交互机制，说明从HTMX轮询改为原生fetch API的实现
+- 新增了错误处理和用户反馈机制的详细说明
+- 更新了策略执行流程图和相关架构图
 
 ## 目录
 1. [简介](#简介)
@@ -33,6 +43,8 @@
 
 ## 简介
 本项目为Quant-ETF的Dashboard监控系统，采用FastAPI + HTMX + SQLite/DuckDB + SSE的全栈架构。系统提供总览页面、持仓管理、策略执行、监控调度、告警管理与设置页面等核心功能，并通过SSE实现实时事件推送，结合HTMX实现无刷新页面片段更新，提升用户体验。数据库方面，看板业务数据使用SQLite，策略结果与监控信号使用DuckDB，形成清晰的数据分层。
+
+**更新** 策略执行界面已从依赖Chart.js的动态图表改为静态HTML表格展示，使用原生fetch API替代HTMX进行轮询控制，增强了错误处理和用户反馈机制。
 
 ## 项目结构
 系统采用按功能域划分的目录结构，核心模块包括：
@@ -88,13 +100,13 @@ SYNC --> DUCKDB
 ```
 
 **图示来源**
-- [src/quant_etf/dashboard/app.py:1-87](file://src/quant_etf/dashboard/app.py#L1-L87)
+- [src/quant_etf/dashboard/app.py:1-92](file://src/quant_etf/dashboard/app.py#L1-L92)
 - [src/quant_etf/dashboard/config.py:1-25](file://src/quant_etf/dashboard/config.py#L1-L25)
 - [src/quant_etf/dashboard/db.py:1-133](file://src/quant_etf/dashboard/db.py#L1-L133)
 - [src/quant_etf/dashboard/template_setup.py:1-10](file://src/quant_etf/dashboard/template_setup.py#L1-L10)
 
 **章节来源**
-- [src/quant_etf/dashboard/app.py:1-87](file://src/quant_etf/dashboard/app.py#L1-L87)
+- [src/quant_etf/dashboard/app.py:1-92](file://src/quant_etf/dashboard/app.py#L1-L92)
 - [src/quant_etf/dashboard/config.py:1-25](file://src/quant_etf/dashboard/config.py#L1-L25)
 - [src/quant_etf/dashboard/db.py:1-133](file://src/quant_etf/dashboard/db.py#L1-L133)
 - [src/quant_etf/dashboard/template_setup.py:1-10](file://src/quant_etf/dashboard/template_setup.py#L1-L10)
@@ -112,7 +124,7 @@ SYNC --> DUCKDB
   - 持仓同步：从DuckDB读取最新价格，更新SQLite中的current_price并通过SSE广播。
 
 **章节来源**
-- [src/quant_etf/dashboard/app.py:17-87](file://src/quant_etf/dashboard/app.py#L17-L87)
+- [src/quant_etf/dashboard/app.py:17-92](file://src/quant_etf/dashboard/app.py#L17-L92)
 - [src/quant_etf/dashboard/config.py:1-25](file://src/quant_etf/dashboard/config.py#L1-L25)
 - [src/quant_etf/dashboard/db.py:69-133](file://src/quant_etf/dashboard/db.py#L69-L133)
 - [src/quant_etf/dashboard/services/sse_manager.py:10-45](file://src/quant_etf/dashboard/services/sse_manager.py#L10-L45)
@@ -178,7 +190,7 @@ A->>S : 启动调度器
 - [src/quant_etf/dashboard/services/sse_manager.py:14-32](file://src/quant_etf/dashboard/services/sse_manager.py#L14-L32)
 
 **章节来源**
-- [src/quant_etf/dashboard/app.py:17-87](file://src/quant_etf/dashboard/app.py#L17-L87)
+- [src/quant_etf/dashboard/app.py:17-92](file://src/quant_etf/dashboard/app.py#L17-L92)
 
 ### 总览页面与HTMX交互
 - 统计数据：账户数、当日告警数、启用调度数。
@@ -230,8 +242,11 @@ P->>S : 广播 portfolio_update 事件
 - [src/quant_etf/dashboard/routes/portfolio.py:1-175](file://src/quant_etf/dashboard/routes/portfolio.py#L1-L175)
 - [src/quant_etf/dashboard/services/portfolio_sync.py:1-87](file://src/quant_etf/dashboard/services/portfolio_sync.py#L1-L87)
 
-### 策略执行API
-- 列出策略：返回TaskRegistry中的可用策略。
+### 策略执行API与前端交互
+
+**更新** 策略执行界面已从Chart.js图表改为静态HTML表格展示，使用原生fetch API进行轮询控制，增强了错误处理和用户反馈机制。
+
+- 列表策略：返回TaskRegistry中的可用策略。
 - 执行策略：异步启动策略执行，返回run_id；支持轮询状态与查看结果。
 - 结果处理：读取CSV结果，对比上一次结果触发告警，SSE广播策略结果与错误事件。
 
@@ -268,6 +283,39 @@ ST-->>C : 渲染结果片段
 - [src/quant_etf/dashboard/routes/strategy.py:1-53](file://src/quant_etf/dashboard/routes/strategy.py#L1-L53)
 - [src/quant_etf/dashboard/services/strategy_runner.py:1-164](file://src/quant_etf/dashboard/services/strategy_runner.py#L1-L164)
 - [src/quant_etf/dashboard/services/alert_engine.py:1-120](file://src/quant_etf/dashboard/services/alert_engine.py#L1-L120)
+
+### 前端策略执行界面与交互机制
+
+**更新** 前端策略执行界面已从HTMX轮询改为原生fetch API实现，移除了Chart.js依赖，使用静态HTML表格展示结果。
+
+- 策略选择：通过fetch API动态加载可用策略列表，支持多选。
+- 执行控制：使用原生fetch API提交执行请求，显示执行进度指示器。
+- 结果展示：静态HTML表格展示策略结果，移除Chart.js图表依赖。
+- 错误处理：完善的错误处理机制，提供用户友好的错误反馈。
+- 轮询机制：使用原生JavaScript定时器进行状态轮询，自动刷新结果。
+
+```mermaid
+flowchart TD
+A["用户点击执行按钮"] --> B["fetch API提交执行请求"]
+B --> C{"请求成功?"}
+C --> |是| D["显示执行进度指示器"]
+D --> E["定时轮询状态 (每2秒)"]
+E --> F{"状态完成?"}
+F --> |否| E
+F --> |是| G["重新加载结果片段"]
+G --> H["静态HTML表格展示结果"]
+C --> |否| I["显示错误提示"]
+I --> J["隐藏执行指示器"]
+```
+
+**图示来源**
+- [src/quant_etf/dashboard/templates/strategy/index.html:18-37](file://src/quant_etf/dashboard/templates/strategy/index.html#L18-L37)
+- [src/quant_etf/dashboard/templates/strategy/_content.html:18-34](file://src/quant_etf/dashboard/templates/strategy/_content.html#L18-L34)
+
+**章节来源**
+- [src/quant_etf/dashboard/templates/strategy/index.html:1-71](file://src/quant_etf/dashboard/templates/strategy/index.html#L1-L71)
+- [src/quant_etf/dashboard/templates/strategy/_content.html:1-67](file://src/quant_etf/dashboard/templates/strategy/_content.html#L1-L67)
+- [src/quant_etf/dashboard/templates/strategy/_results.html:1-64](file://src/quant_etf/dashboard/templates/strategy/_results.html#L1-L64)
 
 ### 告警管理API
 - 规则管理：创建、删除告警规则。
@@ -381,7 +429,7 @@ APP --> DB
 - [src/quant_etf/dashboard/app.py:10-15](file://src/quant_etf/dashboard/app.py#L10-L15)
 
 **章节来源**
-- [src/quant_etf/dashboard/app.py:1-87](file://src/quant_etf/dashboard/app.py#L1-L87)
+- [src/quant_etf/dashboard/app.py:1-92](file://src/quant_etf/dashboard/app.py#L1-L92)
 - [src/quant_etf/dashboard/db.py:1-133](file://src/quant_etf/dashboard/db.py#L1-L133)
 
 ## 性能考虑
@@ -397,8 +445,12 @@ APP --> DB
 - 网络传输：
   - SSE长连接减少HTTP开销；心跳保持连接活性。
   - HTMX片段更新降低页面刷新成本。
+- 前端性能优化：
+  - 移除Chart.js依赖，减少JavaScript包体积和渲染开销。
+  - 使用原生fetch API替代HTMX，降低前端框架依赖。
+  - 静态HTML表格展示结果，提高渲染性能。
 
-[本节为通用性能建议，无需特定文件引用]
+**更新** 前端性能优化：移除Chart.js依赖显著减少了JavaScript包体积，使用原生fetch API替代HTMX降低了前端框架依赖，静态HTML表格展示结果提高了渲染性能。
 
 ## 故障排除指南
 - SSE连接问题：
@@ -416,6 +468,11 @@ APP --> DB
 - HTMX片段不更新：
   - 确认HX-Request头与模板路径；检查路由返回的片段是否正确。
   - 参考：[src/quant_etf/dashboard/routes/pages.py:20-22](file://src/quant_etf/dashboard/routes/pages.py#L20-L22)
+- 前端交互问题：
+  - 检查浏览器控制台是否有JavaScript错误；确认fetch API请求是否成功。
+  - 参考：[src/quant_etf/dashboard/templates/strategy/index.html:18-37](file://src/quant_etf/dashboard/templates/strategy/index.html#L18-L37)、[src/quant_etf/dashboard/templates/strategy/_content.html:18-34](file://src/quant_etf/dashboard/templates/strategy/_content.html#L18-L34)
+
+**更新** 新增前端交互问题排查指南，包括JavaScript错误检查和fetch API请求验证。
 
 **章节来源**
 - [src/quant_etf/dashboard/app.py:39-50](file://src/quant_etf/dashboard/app.py#L39-L50)
@@ -425,11 +482,15 @@ APP --> DB
 - [src/quant_etf/dashboard/services/portfolio_sync.py:34-63](file://src/quant_etf/dashboard/services/portfolio_sync.py#L34-L63)
 - [src/quant_etf/dashboard/db.py:79-91](file://src/quant_etf/dashboard/db.py#L79-L91)
 - [src/quant_etf/dashboard/routes/pages.py:20-22](file://src/quant_etf/dashboard/routes/pages.py#L20-L22)
+- [src/quant_etf/dashboard/templates/strategy/index.html:18-37](file://src/quant_etf/dashboard/templates/strategy/index.html#L18-L37)
+- [src/quant_etf/dashboard/templates/strategy/_content.html:18-34](file://src/quant_etf/dashboard/templates/strategy/_content.html#L18-L34)
 
 ## 结论
-本Dashboard监控系统通过FastAPI + HTMX + SQLite/DuckDB + SSE实现了低耦合、高扩展的监控平台。路由层清晰分层，服务层职责明确，SSE提供实时事件推送，HTMX实现无刷新交互体验。配置集中化管理，便于部署与维护。后续可进一步完善告警规则与可视化图表，增强策略结果展示与历史对比分析。
+本Dashboard监控系统通过FastAPI + HTMX + SQLite/DuckDB + SSE实现了低耦合、高扩展的监控平台。路由层清晰分层，服务层职责明确，SSE提供实时事件推送，HTMX实现无刷新交互体验。配置集中化管理，便于部署与维护。
 
-[本节为总结性内容，无需特定文件引用]
+**更新** 最新版本中，策略执行界面已优化为更简洁的静态HTML表格展示，移除了Chart.js依赖，使用原生fetch API替代HTMX进行轮询控制，提升了系统性能和用户体验。错误处理和用户反馈机制得到显著改善，为用户提供更好的操作体验。
+
+后续可进一步完善告警规则与可视化展示，增强策略结果的历史对比分析功能。
 
 ## 附录
 
@@ -455,7 +516,7 @@ APP --> DB
   - GET /api/strategy/strategies → 列出可用策略
   - POST /api/strategy/run → 执行策略（返回run_id）
   - GET /api/strategy/status/{run_id} → 查询执行进度
-  - GET /api/strategy/results/{run_id} → 渲染结果片段
+  - GET /api/strategy/results/{run_id} → 渲染结果片段（静态HTML表格）
 - 告警API
   - GET /api/alerts/rules → 列出告警规则
   - POST /api/alerts/rules → 创建告警规则
@@ -503,5 +564,5 @@ APP --> DB
 
 **章节来源**
 - [src/quant_etf/dashboard/config.py:16-25](file://src/quant_etf/dashboard/config.py#L16-L25)
-- [src/quant_etf/dashboard/app.py:74-87](file://src/quant_etf/dashboard/app.py#L74-L87)
+- [src/quant_etf/dashboard/app.py:74-92](file://src/quant_etf/dashboard/app.py#L74-L92)
 - [src/quant_etf/dashboard/db.py:79-91](file://src/quant_etf/dashboard/db.py#L79-L91)

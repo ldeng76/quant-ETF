@@ -17,6 +17,7 @@
 - [run_daily.py](file://run_daily.py)
 - [run_dashboard.py](file://run_dashboard.py)
 - [plan_daily_run.md](file://plan_daily_run.md)
+- [tests/test_name_refresh.py](file://tests/test_name_refresh.py)
 </cite>
 
 ## 目录
@@ -32,7 +33,9 @@
 10. [附录](#附录)
 
 ## 简介
-本文件为 Quant-ETF 项目的统一命令行接口“quant-etf”的权威参考文档。围绕每日运行、单任务运行、任务列表、仪表盘、分钟级数据采集、历史补跑等核心命令，提供完整的语法说明、参数选项、默认值、使用示例与最佳实践。文档还解释命令间的依赖关系、错误处理与调试技巧，并给出批量操作与自动化脚本的建议。
+本文件为 Quant-ETF 项目的统一命令行接口"quant-etf"的权威参考文档。围绕每日运行、单任务运行、任务列表、仪表盘、分钟级数据采集、历史补跑等核心命令，提供完整的语法说明、参数选项、默认值、使用示例与最佳实践。文档还解释命令间的依赖关系、错误处理与调试技巧，并给出批量操作与自动化脚本的建议。
+
+**更新** 新增 refresh-stock-names 命令，支持强制重建股票名称映射、干运行模式、自定义目标文件路径等功能。增强了 backfill-stock-names 功能，改进了冲突解决机制和错误处理。
 
 ## 项目结构
 - 统一 CLI 入口位于 src/quant_etf/cli.py，负责参数解析与命令分发。
@@ -51,6 +54,7 @@ CLI --> Backfill["backfill<br/>批量补跑历史日期任务"]
 CLI --> RestartDash["restart-dashboard<br/>一键重启 Dashboard 服务"]
 CLI --> CheckDash["check<br/>Dashboard 健康检查"]
 CLI --> BackfillNames["backfill-stock-names<br/>补齐股票代码名称"]
+CLI --> RefreshNames["refresh-stock-names<br/>强制重建股票名称映射"]
 DailyRun --> Tasks["任务注册与执行<br/>src/quant_etf/tasks.py"]
 RunCmd --> Tasks
 Backfill --> Tasks
@@ -61,6 +65,7 @@ Dashboard --> DashApp["FastAPI 应用<br/>src/quant_etf/dashboard/app.py"]
 RestartDash --> DashApp
 CheckDash --> DashApp
 BackfillNames --> DataSource["数据源与名称映射<br/>src/quant_etf/data_source.py"]
+RefreshNames --> DataSource
 ```
 
 **图示来源**
@@ -309,12 +314,56 @@ Dash-->>User : 通过页面与SSE推送展示
 - 行为细节
   - 通过 ETFDataSource.backfill_stock_names 执行补齐逻辑
   - 输出完成统计结果
+  - 仅补齐缺失的代码，不覆盖现有条目
 - 使用示例
   - quant-etf backfill-stock-names
+- 错误处理
+  - 查询失败的代码：记录警告并跳过，不破坏现有数据
+  - JSON 解析失败：视为无数据，继续处理
+  - 支持原子写入，失败时不破坏现有文件
+
+**更新** 增强了冲突解决机制，现在仅补齐缺失的代码，不覆盖现有条目
 
 **章节来源**
 - [src/quant_etf/cli.py:362-370](file://src/quant_etf/cli.py#L362-L370)
-- [src/quant_etf/data_source.py:15-200](file://src/quant_etf/data_source.py#L15-L200)
+- [src/quant_etf/data_source.py:465-533](file://src/quant_etf/data_source.py#L465-L533)
+- [README.md:189-196](file://README.md#L189-L196)
+
+### refresh-stock-names —— 强制重建股票名称映射
+- 功能概述：强制全量重建 stock_code_name.json，覆盖错误条目，支持干运行模式和自定义目标文件路径。
+- 语法与参数
+  - 语法：quant-etf refresh-stock-names [--dry-run] [--target PATH]
+  - 参数
+    - --dry-run：只打印差异，不写文件
+    - --target：自定义目标文件路径，默认 data/meta/stock_code_name.json
+- 行为细节
+  - 从 ETF_POOL、STOCK_POOL、MID_TERM_STOCK_POOL 获取所有代码
+  - 使用 SimpleStockAPI 从在线数据源查询权威名称
+  - 与现有 JSON 比对，覆盖错误条目
+  - market 字段统一用 _market_for_code 判定
+  - 查询失败的代码：保留 JSON 中已有条目，返回 failed 列表
+  - 支持干运行模式，仅生成报告不写文件
+  - 改进冲突解决机制：优先使用在线 API 返回值，market 字段统一由本地逻辑判定
+- 使用示例
+  - 强制重建：quant-etf refresh-stock-names
+  - 干运行模式：quant-etf refresh-stock-names --dry-run
+  - 自定义目标路径：quant-etf refresh-stock-names --target /custom/path/stock_code_name.json
+- 错误处理
+  - 在线查询失败时保留旧条目
+  - JSON 解析失败时将视为空
+  - 支持原子写入，失败时不破坏现有文件
+  - market 字段修正：5xxxxx 代码统一修正为 sh，其他代码按规则判定
+- 输出格式
+  - 显示 new、updated、unchanged、failed 数量统计
+  - 如果有更新条目，显示具体的代码、旧名称→新名称、旧市场→新市场的变更详情
+  - 如果有失败代码，显示保留旧条目的失败列表
+
+**更新** 新增 refresh-stock-names 命令，提供更强大的股票名称管理功能。改进了冲突解决机制，现在会覆盖错误条目并统一市场字段。
+
+**章节来源**
+- [src/quant_etf/cli.py:359-402](file://src/quant_etf/cli.py#L359-L402)
+- [src/quant_etf/data_source.py:346-463](file://src/quant_etf/data_source.py#L346-L463)
+- [tests/test_name_refresh.py:18-181](file://tests/test_name_refresh.py#L18-L181)
 - [README.md:189-196](file://README.md#L189-L196)
 
 ### 与主流程的关系
@@ -359,6 +408,8 @@ Minute --> Conf
   - backfill 依赖 trading_day.get_trading_dates_between
   - minute-collect 依赖 conf.ALL_POOL 与 minute_collector 的数据库接口
   - dashboard 依赖 dashboard/app.py 的 main 函数与配置
+  - refresh-stock-names 依赖 ETFDataSource 的 refresh_stock_names 方法
+  - backfill-stock-names 依赖 ETFDataSource 的 backfill_stock_names 方法
 - 外部依赖
   - pytdx：在线数据获取
   - duckdb：分钟数据存储
@@ -401,8 +452,11 @@ DS --> PyTDX["pytdx"]
 - Dashboard
   - SSE 心跳保活，避免长时间空闲连接断开
   - 调度器在启动时初始化，避免重复初始化开销
-
-[本节为通用指导，不直接分析具体文件]
+- 股票名称管理
+  - refresh-stock-names 使用批处理查询，delay=0.3 秒避免请求过快
+  - 支持干运行模式，先生成报告再决定是否写入
+  - 原子写入机制，避免部分更新导致的数据损坏
+  - backfill-stock-names 仅处理缺失代码，提高效率
 
 ## 故障排除指南
 - CLI 无法识别命令
@@ -421,6 +475,18 @@ DS --> PyTDX["pytdx"]
 - 历史补跑无数据
   - 确认 trading_day.get_trading_dates_between 返回了有效日期
   - 检查 data/results/{date} 目录权限
+- 股票名称刷新失败
+  - 检查网络连接和在线数据源可用性
+  - 使用 --dry-run 模式先预览差异，确认无误后再写入
+  - 确认目标文件路径权限，特别是自定义目标路径
+  - 如果某些代码查询失败，会保留旧条目，不会破坏现有数据
+- backfill-stock-names 无效果
+  - 确认 stock_code_name.json 中确实存在缺失的代码
+  - 检查在线数据源是否可访问
+  - 注意：该命令仅补齐缺失代码，不覆盖现有条目
+- refresh-stock-names 冲突处理
+  - 该命令会覆盖错误条目，注意备份重要数据
+  - 使用 --dry-run 预览变更后再执行实际写入
 
 **章节来源**
 - [pyproject.toml:28-30](file://pyproject.toml#L28-L30)
@@ -431,9 +497,9 @@ DS --> PyTDX["pytdx"]
 - [src/quant_etf/trading_day.py:62-88](file://src/quant_etf/trading_day.py#L62-L88)
 
 ## 结论
-quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组合的命令。通过 daily-run、run、list-tasks、dashboard、minute-collect、backfill 等命令，用户可以高效完成日常的选股、监控与数据维护工作。配合 Dashboard 的实时可视化与 SSE 推送，用户能够及时掌握策略执行与市场动态。建议在生产环境中结合定时任务与健康检查，确保系统的稳定运行。
+quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组合的命令。通过 daily-run、run、list-tasks、dashboard、minute-collect、backfill、backfill-stock-names、refresh-stock-names 等命令，用户可以高效完成日常的选股、监控、数据维护和股票名称管理等工作。配合 Dashboard 的实时可视化与 SSE 推送，用户能够及时掌握策略执行与市场动态。建议在生产环境中结合定时任务与健康检查，确保系统的稳定运行。
 
-[本节为总结性内容，不直接分析具体文件]
+**更新** 新增的 refresh-stock-names 命令提供了更强大的股票名称管理能力，支持强制重建、干运行模式和自定义目标路径，满足了更复杂的数据维护需求。增强了 backfill-stock-names 功能，改进了冲突解决机制，现在更加智能地处理数据同步。
 
 ## 附录
 
@@ -446,7 +512,10 @@ quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组�
 - backfill：批量补跑历史日期任务
 - restart-dashboard：一键重启 Dashboard 服务
 - check：Dashboard 健康检查
-- backfill-stock-names：补齐股票代码名称
+- backfill-stock-names：补齐股票代码名称（仅补齐缺失，不覆盖现有）
+- refresh-stock-names：强制重建股票名称映射（覆盖错误条目，统一市场字段）
+
+**更新** 新增 refresh-stock-names 命令，增强 backfill-stock-names 功能
 
 **章节来源**
 - [README.md:79-92](file://README.md#L79-L92)
@@ -470,7 +539,21 @@ quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组�
 - 每日汇总：data/results/{date}/daily_summary.txt
 - TDX 导入文件：output/TDX_Strategy_Pick.txt
 - TDX 自定义公式：output/TDX_Formula_Momentum.txt
+- 股票代码名称映射：data/meta/stock_code_name.json（默认路径）
+
+**更新** 新增股票代码名称映射文件
 
 **章节来源**
 - [plan_daily_run.md:10-33](file://plan_daily_run.md#L10-L33)
 - [README.md:231-239](file://README.md#L231-L239)
+
+### 股票名称管理策略对比
+- backfill-stock-names：仅补齐缺失代码，不覆盖现有条目
+- refresh-stock-names：强制重建，覆盖错误条目，统一市场字段
+- 冲突解决机制：refresh-stock-names 优先使用在线 API 返回值，market 字段统一由本地逻辑判定
+
+**更新** 新增两种不同的股票名称管理策略对比
+
+**章节来源**
+- [src/quant_etf/data_source.py:346-533](file://src/quant_etf/data_source.py#L346-L533)
+- [tests/test_name_refresh.py:18-181](file://tests/test_name_refresh.py#L18-L181)

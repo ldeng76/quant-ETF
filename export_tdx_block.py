@@ -78,8 +78,45 @@ def parse_blk_file(blk_path: Path) -> list[tuple[str, str]]:
     return stocks
 
 
+def get_stock_names_via_akshare(codes: list[str]) -> dict[str, str]:
+    """
+    使用 akshare 获取股票名称（批量查询）
+    
+    Args:
+        codes: 股票代码列表，如 ["000031", "600030", ...]
+    
+    Returns:
+        {code: name} 字典，如 {"000031": "深物业A", "600030": "中信证券"}
+    """
+    try:
+        import akshare as ak
+        
+        print("  使用 akshare 获取股票名称...")
+        
+        # 获取A股实时行情数据（包含代码和名称）
+        df = ak.stock_zh_a_spot_em()
+        
+        # 筛选目标股票
+        result_dict = {}
+        for _, row in df[df["代码"].isin(codes)].iterrows():
+            result_dict[row["代码"]] = row["名称"]
+        
+        found = set(result_dict.keys())
+        missing = set(codes) - found
+        
+        if missing:
+            print(f"  警告：以下股票未找到：{sorted(missing)}")
+        
+        return result_dict
+        
+    except Exception as e:
+        print(f"  使用 akshare 获取股票名称失败：{e}")
+        print("  回退到本地名称映射...")
+        return {}
+
+
 def get_stock_name_from_meta(stock_code: str, _cache: dict = {}) -> str:
-    """从项目的stock_code_name.json获取股票名称（带缓存）"""
+    """从项目的stock_code_name.json获取股票名称（带缓存，备用方案）"""
     import json
     
     # 使用缓存避免重复读取
@@ -132,15 +169,28 @@ def export_block_to_csv(
     # 获取股票名称（如果需要）
     stock_data = []
     if include_name:
-        print("读取股票名称映射...")
+        print("获取股票名称...")
         
+        # 优先使用 akshare 批量获取（实时数据，更准确）
+        codes = [code for code, _ in stocks]
+        name_map = get_stock_names_via_akshare(codes)
+        
+        # 如果 akshare 失败或部分缺失，使用本地映射补充
+        if not name_map:
+            print("  使用本地名称映射...")
+            for code in codes:
+                name = get_stock_name_from_meta(code)
+                if name:
+                    name_map[code] = name
+        
+        # 构建数据
         for code, market in stocks:
-            name = get_stock_name_from_meta(code)
+            name = name_map.get(code, "")
             stock_data.append({"code": code, "name": name, "market": market})
             if name:
                 print(f"  {code} - {name}")
             else:
-                print(f"  {code}")
+                print(f"  {code} (未找到名称)")
     else:
         stock_data = [{"code": code, "market": market} for code, market in stocks]
         for item in stock_data:
