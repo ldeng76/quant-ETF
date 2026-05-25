@@ -18,6 +18,7 @@ from quant_etf.conf import (
     PROJECT_ROOT,
 )
 from quant_etf.data_source import ETFDataSource
+from quant_etf.trading_day import is_intraday
 from quant_etf.strategy import StrategyEngine, ETFScore, StockScore, ReboundStockScore
 from quant_etf.risk import RiskManager, RiskLevel
 from quant_etf.export import (
@@ -35,15 +36,21 @@ class BaseTask(ABC):
     name: str = "base"
     description: str = "Base task"
 
-    def __init__(self, target_date: str | None = None):
+    def __init__(self, target_date: str | None = None, intraday: bool = False):
         """
         初始化任务
         :param target_date: 目标日期，格式 YYYY-MM-DD。默认为 None，表示使用当前日期。
+        :param intraday: 是否使用盘中实时行情构造今日临时日K线
         """
         self.target_date = target_date
+        self._intraday = intraday
         self.ds: Optional[ETFDataSource] = None
         self.strategy: Optional[StrategyEngine] = None
         self.risk_manager: Optional[RiskManager] = None
+
+    @property
+    def intraday(self) -> bool:
+        return self._intraday
 
     def initialize(self) -> None:
         """
@@ -52,6 +59,9 @@ class BaseTask(ABC):
         self.ds = ETFDataSource()
         self.strategy = StrategyEngine()
         self.risk_manager = RiskManager()
+
+        mode = "INTRADAY" if (self._intraday and is_intraday()) else "standard"
+        logger.info(f"[{self.name}] Data mode: {mode}")
 
     def save_results_to_csv(self, data: List[Dict[str, Any]], filename_prefix: str) -> None:
         """
@@ -195,7 +205,7 @@ class ETFTask(BaseTask):
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
         data = {}
         for code in pool:
-            df = self.ds.load_data(code)
+            df = self.ds.load_data(code, intraday=self.intraday)
             if df.empty:
                 logger.error(f"Failed to load data for {code}. Skipping.")
                 continue
@@ -313,7 +323,7 @@ class ShortTermStockTask(BaseTask):
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
         data = {}
         for code in pool:
-            df = self.ds.load_stock_data(code)
+            df = self.ds.load_stock_data(code, intraday=self.intraday)
             if df.empty:
                 logger.error(f"Failed to load stock data for {code}. Skipping.")
                 continue
@@ -377,7 +387,7 @@ class MidTermReboundTask(BaseTask):
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
         data = {}
         for code in pool:
-            df = self.ds.load_stock_data(code)
+            df = self.ds.load_stock_data(code, intraday=self.intraday)
             if df.empty:
                 logger.error(f"Failed to load stock data for {code}. Skipping.")
                 continue
@@ -442,16 +452,17 @@ class TaskRegistry:
     }
 
     @classmethod
-    def get_task(cls, name: str, target_date: str | None = None) -> Optional[BaseTask]:
+    def get_task(cls, name: str, target_date: str | None = None, intraday: bool = False) -> Optional[BaseTask]:
         """
         根据任务名称获取任务实例
         :param name: 任务名称
         :param target_date: 目标日期，格式 YYYY-MM-DD
+        :param intraday: 是否使用盘中实时行情
         """
         task_class = cls._tasks.get(name)
         if task_class is None:
             return None
-        return task_class(target_date=target_date)
+        return task_class(target_date=target_date, intraday=intraday)
 
     @classmethod
     def list_tasks(cls) -> List[Dict[str, str]]:

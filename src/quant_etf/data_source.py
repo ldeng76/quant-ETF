@@ -5,11 +5,68 @@ from pathlib import Path
 from loguru import logger
 from datetime import datetime, timedelta
 from quant_etf.conf import DATA_DIR, ETF_POOL
-from quant_etf.tdx import get_tdx_path, parse_tdx_day_file, get_security_bars, get_xdxr_info, adjust_price_qfq
+from quant_etf.tdx import (
+    get_tdx_path, parse_tdx_day_file, get_security_bars, get_xdxr_info,
+    adjust_price_qfq, get_realtime_quote_single,
+)
+from quant_etf.trading_day import is_intraday
 
 _collect_info_path = Path(__file__).parent.parent / "collect_info"
 if str(_collect_info_path) not in sys.path:
     sys.path.insert(0, str(_collect_info_path))
+
+
+def build_intraday_bar(code: str, df_history: pd.DataFrame) -> pd.DataFrame | None:
+    """
+    用实时行情数据构造一条"今日"日K线
+    :param code: 证券代码
+    :param df_history: 历史日线数据（用于获取昨天的收盘价计算 pct_chg）
+    :return: 单行 DataFrame，格式与 load_data 返回值一致；失败返回 None
+    """
+    quote = get_realtime_quote_single(code)
+    if quote is None:
+        logger.warning(f"Failed to get realtime quote for {code}, skipping intraday bar")
+        return None
+
+    today = datetime.now().date()
+    today_dt = datetime.combine(today, datetime.min.time())
+
+    # 提取实时行情字段
+    close = quote.get("close", 0)
+    if not close or close <= 0:
+        logger.warning(f"Invalid close price from realtime quote for {code}: {close}")
+        return None
+
+    open_price = quote.get("open", close)
+    high = quote.get("high", close)
+    low = quote.get("low", close)
+    volume = quote.get("vol", quote.get("volume", 0))
+    amount = quote.get("amount", 0)
+
+    # 计算 pct_chg（基于历史数据的最后一个收盘价）
+    pct_chg = 0.0
+    if not df_history.empty:
+        prev_close = df_history.iloc[-1]["close"]
+        if prev_close and prev_close > 0:
+            pct_chg = (close - prev_close) / prev_close * 100
+
+    # 构造单行 DataFrame
+    row = pd.DataFrame(
+        {
+            "open": [open_price],
+            "high": [high],
+            "low": [low],
+            "close": [close],
+            "amount": [amount],
+            "volume": [volume],
+            "pct_chg": [pct_chg],
+        },
+        index=[today_dt],
+    )
+    row.index.name = "date"
+
+    logger.info(f"Built intraday bar for {code}: close={close}, pct_chg={pct_chg:.2f}%")
+    return row
 
 
 class ETFDataSource:
@@ -186,7 +243,7 @@ class ETFDataSource:
             else:
                 return last_date >= (today - timedelta(days=1))
 
-    def load_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True, adjust_qfq: bool = True) -> pd.DataFrame:
+    def load_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True, adjust_qfq: bool = True, intraday: bool = False) -> pd.DataFrame:
         """
         加载 ETF 数据
         优先级：本地 TDX 文件 > 缓存 > 在线获取
@@ -195,6 +252,7 @@ class ETFDataSource:
         :param check_freshness: 是否检查数据新鲜度
         :param allow_online: 是否允许在线获取数据（默认 True）
         :param adjust_qfq: 是否进行前复权处理（默认 True）
+        :param intraday: 是否在交易时段内构造今日临时日K线（默认 False）
         :return: DataFrame
         """
         # 1. 尝试从本地 TDX 文件加载
@@ -207,7 +265,7 @@ class ETFDataSource:
                     # 应用前复权处理
                     if adjust_qfq:
                         df = self._apply_qfq(code, df)
-                    return df
+                    return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
             except Exception as e:
                 logger.error(f"Failed to load TDX data for {code}: {e}")
 
@@ -222,7 +280,7 @@ class ETFDataSource:
                         # 应用前复权处理
                         if adjust_qfq:
                             df = self._apply_qfq(code, df)
-                        return df
+                        return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
             except Exception as e:
                 logger.error(f"Error reading cache for {code}: {e}")
 
@@ -239,11 +297,24 @@ class ETFDataSource:
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
                     df.to_csv(cache_path)
                     logger.info(f"Saved online data to cache: {cache_path} (last: {df.index[-1].date()})")
-                    return df
+                    return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
             except Exception as e:
                 logger.error(f"Failed to fetch online data for {code}: {e}")
 
         raise RuntimeError(f"Failed to load ETF data for {code}. No TDX data found for {code}")
+
+    def _append_intraday_if_needed(self, code: str, df: pd.DataFrame, intraday: bool, adjust_qfq: bool) -> pd.DataFrame:
+        """
+        如果处于 intraday 模式且当前是交易时段，构造今日临时日K线并拼接
+        """
+        if not intraday or not is_intraday():
+            return df
+        intraday_bar = build_intraday_bar(code, df)
+        if intraday_bar is not None:
+            df = pd.concat([df, intraday_bar])
+            df.sort_index(inplace=True)
+            logger.info(f"Appended intraday bar for {code}, data now spans to {df.index[-1].date()}")
+        return df
 
     def _apply_qfq(self, code: str, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -265,7 +336,7 @@ class ETFDataSource:
         
         return df
 
-    def load_stock_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True) -> pd.DataFrame:
+    def load_stock_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True, intraday: bool = False) -> pd.DataFrame:
         """
         加载股票数据
         优先级：本地 TDX 文件 > 缓存 > 在线获取
@@ -273,6 +344,7 @@ class ETFDataSource:
         :param force_update: 忽略，保留参数兼容
         :param check_freshness: 是否检查数据新鲜度
         :param allow_online: 是否允许在线获取数据（默认 True）
+        :param intraday: 是否在交易时段内构造今日临时日K线（默认 False）
         :return: DataFrame
         """
         # 1. 尝试从本地 TDX 文件加载
@@ -282,7 +354,7 @@ class ETFDataSource:
                 logger.info(f"Loading stock data for {code} from local TDX file: {tdx_path}")
                 df = parse_tdx_day_file(tdx_path)
                 if not df.empty:
-                    return df
+                    return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
             except Exception as e:
                 logger.error(f"Failed to load TDX stock data for {code}: {e}")
 
@@ -294,7 +366,7 @@ class ETFDataSource:
                 if not df.empty:
                     if not check_freshness or self.check_is_fresh(df):
                         logger.info(f"Loaded stock data for {code} from cache (last: {df.index[-1].date()})")
-                        return df
+                        return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
             except Exception as e:
                 logger.error(f"Error reading stock cache for {code}: {e}")
 
@@ -308,7 +380,7 @@ class ETFDataSource:
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
                     df.to_csv(cache_path)
                     logger.info(f"Saved online data to cache: {cache_path} (last: {df.index[-1].date()})")
-                    return df
+                    return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
             except Exception as e:
                 logger.error(f"Failed to fetch online stock data for {code}: {e}")
 

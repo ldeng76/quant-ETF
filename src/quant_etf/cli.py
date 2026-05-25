@@ -27,6 +27,8 @@ def cmd_daily_run(args):
     from quant_etf.tasks import TaskRegistry
     from quant_etf.tasks import ETFTask, ShortTermStockTask, MidTermReboundTask
     from quant_etf.comparison import ResultComparator
+    from quant_etf.data_source import ETFDataSource
+    from quant_etf.trading_day import is_intraday
 
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
@@ -39,22 +41,42 @@ def cmd_daily_run(args):
         dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(args.days)]
         dates.reverse()
 
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
     logger.info(f"Running daily tasks for dates: {dates}")
     for date_str in dates:
+        # 仅对今天的日期且处于交易时段时启用 intraday
+        intraday_for_this_date = is_intraday() and (date_str == today_str)
+        if intraday_for_this_date:
+            logger.info(f"Processing date: {date_str} (INTRADAY mode)")
+        else:
+            logger.info(f"Processing date: {date_str} (standard mode)")
+
         logger.info(f"\n{'='*50}")
-        logger.info(f"Processing date: {date_str}")
         logger.info(f"{'='*50}\n")
 
         task_names = ["etf", "short", "mid"]
         for task_name in task_names:
             logger.info(f"Running task: {task_name} for date {date_str}")
-            task = TaskRegistry.get_task(task_name, target_date=date_str)
+            task = TaskRegistry.get_task(task_name, target_date=date_str, intraday=intraday_for_this_date)
             if task:
                 task.run()
             else:
                 logger.error(f"Task not found: {task_name}")
 
         comparator = ResultComparator()
+
+        # Auto-fill any newly added pool codes before generating comparison reports
+        try:
+            ds = ETFDataSource()
+            result = ds.backfill_stock_names()
+            if result["filled"] > 0:
+                logger.info(f"Auto-backfilled {result['filled']} missing stock names")
+                # Force reload the name map cache so comparison uses fresh data
+                comparator.ds.get_stock_name_map(force_refresh=True)
+        except Exception as e:
+            logger.warning(f"Auto-backfill of stock names failed (non-fatal): {e}")
+
         all_reports = []
         for task_name in task_names:
             report = comparator.compare(task_name, date_str)
@@ -386,7 +408,7 @@ def cmd_run(args):
         logger.error(f"Unknown task: {task_name}")
         sys.exit(1)
 
-    task = TaskRegistry.get_task(task_name, target_date=args.date)
+    task = TaskRegistry.get_task(task_name, target_date=args.date, intraday=args.intraday)
     if task is None:
         logger.error(f"Failed to load task: {task_name}")
         sys.exit(1)
@@ -460,6 +482,7 @@ def build_parser():
     p = sub.add_parser("run", help="运行单个选股任务")
     p.add_argument("task", nargs="?", default="etf", help="任务名称: etf/short/mid (默认: etf)")
     p.add_argument("--date", type=str, help="指定日期 (格式: YYYY-MM-DD)")
+    p.add_argument("--intraday", action="store_true", help="使用盘中实时行情构造今日临时日K线")
 
     sub.add_parser("list-tasks", help="列出所有可用选股任务")
 

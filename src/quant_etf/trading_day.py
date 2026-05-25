@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 import pandas as pd
 from loguru import logger
@@ -86,6 +86,19 @@ def get_trading_dates_between(
 
     logger.info(f"Trading dates between {start_date} and {end_date}: {len(filtered)} days")
     return filtered
+
+
+def is_intraday() -> bool:
+    """
+    判断当前是否处于 A 股交易时间段
+    交易时间：工作日 09:30-11:30 或 13:00-15:00
+    """
+    now = datetime.now()
+    if now.weekday() >= 5:
+        return False
+    current = now.time()
+    return (time(9, 30) <= current <= time(11, 30) or
+            time(13, 0) <= current <= time(15, 0))
 
 
 # test code

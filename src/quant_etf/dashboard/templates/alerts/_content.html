@@ -30,7 +30,7 @@
 
     <div id="alert-list"
          hx-get="/api/alerts/dashboard"
-         hx-trigger="load every 15s">
+         hx-trigger="load, every 15s">
         <div class="spinner-border spinner-border-sm"></div> 加载告警...
     </div>
 
@@ -41,7 +41,7 @@
         </div>
         <div class="card-body p-0" id="monitor-signals"
              hx-get="/api/alerts/monitor-signals"
-             hx-trigger="load every 30s">
+             hx-trigger="load, every 30s">
             <div class="spinner-border spinner-border-sm m-3"></div> 加载监控信号...
         </div>
     </div>

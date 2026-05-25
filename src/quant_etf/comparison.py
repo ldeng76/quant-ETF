@@ -5,6 +5,16 @@ from loguru import logger
 from quant_etf.conf import PROJECT_ROOT
 from quant_etf.data_source import ETFDataSource
 
+
+def _parse_pct(val) -> float:
+    """解析百分比字符串或浮点数（如 '50.00%' → 0.5）"""
+    if isinstance(val, str):
+        val = val.strip()
+        if val.endswith("%"):
+            return float(val[:-1]) / 100.0
+        return float(val)
+    return float(val) if val else 0.0
+
 class ResultComparator:
     def __init__(self):
         self.results_dir = PROJECT_ROOT / "data" / "results"
@@ -106,16 +116,16 @@ class ResultComparator:
                 
                 # 根据任务类型比较不同字段
                 if task_name == "etf":
-                    val_curr = row_curr.get("target_weight", 0)
-                    val_prev = row_prev.get("target_weight", 0)
+                    val_curr = _parse_pct(row_curr.get("target_weight", 0))
+                    val_prev = _parse_pct(row_prev.get("target_weight", 0))
                     diff = val_curr - val_prev
                     if abs(diff) > 0.001: # 忽略微小差异
                         changes_found = True
                         lines.append(f"  * {code} {name_map.get(code)}: Weight {val_prev:.2%} -> {val_curr:.2%} ({diff:+.2%})")
-                
+
                 elif task_name in ("short", "mid"):
-                    val_curr = row_curr.get("score", 0)
-                    val_prev = row_prev.get("score", 0)
+                    val_curr = _parse_pct(row_curr.get("score", 0))
+                    val_prev = _parse_pct(row_prev.get("score", 0))
                     diff = val_curr - val_prev
                     if abs(diff) > 0.0001:
                         changes_found = True

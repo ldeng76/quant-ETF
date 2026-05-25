@@ -4,8 +4,22 @@
 <div class="py-3" x-data="{
     showScheduleModal: false,
     scheduleForm: { strategy: '', interval: 300 },
-    resetScheduleForm() { this.scheduleForm = { strategy: '', interval: 300 } },
-}" x-on:open-schedule-modal.window="showScheduleModal = true; resetScheduleForm()">
+    strategies: [],
+    async initStrategies() {
+        try {
+            const resp = await fetch('/api/strategy/strategies');
+            this.strategies = await resp.json();
+            if (this.strategies.length > 0 && !this.scheduleForm.strategy) {
+                this.scheduleForm.strategy = this.strategies[0].name;
+            }
+        } catch (e) {
+            console.error('Failed to load strategies:', e);
+        }
+    },
+    resetScheduleForm() { 
+        this.scheduleForm = { strategy: this.strategies[0]?.name || '', interval: 300 };
+    },
+}" x-init="initStrategies()" x-on:open-schedule-modal.window="showScheduleModal = true; resetScheduleForm()">
     <h4><i class="bi bi-eye"></i> 实时监控</h4>
     <hr>
 
@@ -46,7 +60,7 @@
         </div>
         <div class="card-body" id="schedule-table"
              hx-get="/api/market/schedules"
-             hx-trigger="load every 10s">
+             hx-trigger="load delay:100ms, every 10s">
             <div class="spinner-border spinner-border-sm"></div>
         </div>
     </div>
@@ -69,12 +83,24 @@
                 <h5 class="mb-0">新增定时策略</h5>
                 <button class="btn-close" x-on:click="showScheduleModal = false"></button>
             </div>
-            <form hx-post="/api/market/schedules"
-                  hx-target="#schedule-table"
-                  x-on:submit="showScheduleModal = false">
+            <form x-on:submit.prevent="
+                fetch('/api/market/schedules', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({strategy: scheduleForm.strategy, interval: parseInt(scheduleForm.interval)})
+                }).then(() => {
+                    htmx.ajax('GET', '/api/market/schedules', {target: '#schedule-table'});
+                    showScheduleModal = false;
+                });
+            ">
                 <div class="mb-2">
                     <label class="form-label small">策略名称 *</label>
-                    <input type="text" name="strategy" class="form-control form-control-sm" x-model="scheduleForm.strategy" required>
+                    <select name="strategy" class="form-select form-select-sm" x-model="scheduleForm.strategy" required>
+                        <option value="" disabled>请选择策略</option>
+                        <template x-for="s in strategies" :key="s.name">
+                            <option :value="s.name" x-text="s.name + ' - ' + s.description"></option>
+                        </template>
+                    </select>
                 </div>
                 <div class="mb-3">
                     <label class="form-label small">执行间隔（秒） *</label>
@@ -91,28 +117,86 @@
 </div>
 
 <script>
+    // 更新定时策略数量
+    function updateScheduleCount() {
+        fetch('/api/market/schedules')
+            .then(r => r.text())
+            .then(html => {
+                // 解析返回的 HTML,统计表格行数
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const rows = doc.querySelectorAll('tbody tr');
+                const count = rows.length;
+                const countEl = document.getElementById('schedule-count');
+                if (countEl) {
+                    countEl.textContent = count > 0 ? `${count} 个定时策略` : '暂无定时策略';
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load schedule count:', err);
+                const countEl = document.getElementById('schedule-count');
+                if (countEl) {
+                    countEl.textContent = '加载失败';
+                }
+            });
+    }
+
+    // 页面加载时立即更新,之后每10秒更新一次
+    updateScheduleCount();
+    setInterval(updateScheduleCount, 10000);
+
     // 监听 SSE 信号流
-    document.addEventListener('DOMContentLoaded', function() {
+    (function() {
         const evtSource = new EventSource('/events');
-        evtSource.onmessage = function(event) {
+        const stream = document.getElementById('signal-stream');
+        
+        // 连接成功时清除"等待"提示
+        evtSource.addEventListener('message', function(event) {
             const data = JSON.parse(event.data);
-            const stream = document.getElementById('signal-stream');
+            if (!stream) return;
+            
+            // 如果是第一条消息且是连接事件,清除等待提示
+            if (data.type === 'connected' && stream.children.length === 1 && 
+                stream.children[0].classList.contains('text-muted')) {
+                stream.innerHTML = '';
+            }
+            
             const time = new Date().toLocaleTimeString('zh-CN');
             const msg = document.createElement('div');
             msg.className = 'small mb-1';
-            if (data.type === 'strategy_result') {
+            
+            if (data.type === 'connected') {
+                msg.innerHTML = `<span class="text-success">[${time}]</span> ✓ SSE 连接成功`;
+            } else if (data.type === 'strategy_result') {
                 msg.innerHTML = `<span class="text-success">[${time}]</span> ${data.strategy} 执行完成`;
             } else if (data.type === 'strategy_error') {
                 msg.innerHTML = `<span class="text-danger">[${time}]</span> ${data.strategy} 执行失败: ${data.error}`;
             } else if (data.type === 'alert') {
                 msg.innerHTML = `<span class="text-warning">[${time}]</span> ⚠ ${data.title}`;
+            } else {
+                // 未知事件类型,不显示
+                return;
             }
+            
             stream.prepend(msg);
-            // 限制显示条数
             while (stream.children.length > 50) {
                 stream.removeChild(stream.lastChild);
             }
+        });
+        
+        // 连接错误处理
+        evtSource.onerror = function() {
+            if (!stream) return;
+            const time = new Date().toLocaleTimeString('zh-CN');
+            // 检查是否已有错误提示
+            const existingError = stream.querySelector('.text-danger');
+            if (!existingError || !existingError.textContent.includes('SSE')) {
+                const msg = document.createElement('div');
+                msg.className = 'small mb-1 text-danger';
+                msg.innerHTML = `[${time}] ✗ SSE 连接断开,重连中...`;
+                stream.prepend(msg);
+            }
         };
-    });
+    })();
 </script>
 {% endblock %}

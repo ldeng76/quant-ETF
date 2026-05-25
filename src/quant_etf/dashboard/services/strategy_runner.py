@@ -14,6 +14,7 @@ from loguru import logger
 
 from quant_etf.tasks import TaskRegistry
 from quant_etf.conf import PROJECT_ROOT
+from quant_etf.trading_day import is_intraday
 from .sse_manager import sse_manager
 from .alert_engine import alert_engine
 from ..db import query
@@ -39,7 +40,10 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
 
     def _execute():
         try:
-            task = TaskRegistry.get_task(strategy_name)
+            intraday = is_intraday()
+            if intraday:
+                logger.info(f"Strategy {strategy_name} running in INTRADAY mode")
+            task = TaskRegistry.get_task(strategy_name, intraday=intraday)
             if not task:
                 raise ValueError(f"Unknown strategy: {strategy_name}")
 
