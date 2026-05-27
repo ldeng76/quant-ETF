@@ -2,6 +2,7 @@
 任务模块：定义各类选股任务的抽象基类和具体实现
 """
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -10,6 +11,7 @@ from dataclasses import asdict
 import pandas as pd
 from loguru import logger
 
+from quant_etf.bar_interval import DEFAULT_INTERVAL
 from quant_etf.conf import (
     ETF_POOL,
     STOCK_POOL,
@@ -36,14 +38,21 @@ class BaseTask(ABC):
     name: str = "base"
     description: str = "Base task"
 
-    def __init__(self, target_date: str | None = None, intraday: bool = False):
+    def __init__(
+        self,
+        target_date: str | None = None,
+        intraday: bool = False,
+        bar_interval: str = DEFAULT_INTERVAL,
+    ):
         """
         初始化任务
         :param target_date: 目标日期，格式 YYYY-MM-DD。默认为 None，表示使用当前日期。
         :param intraday: 是否使用盘中实时行情构造今日临时日K线
+        :param bar_interval: K线周期 ("1d"/"5m"/"15m"/"30m"/"60m")
         """
         self.target_date = target_date
         self._intraday = intraday
+        self._bar_interval = bar_interval
         self.ds: Optional[ETFDataSource] = None
         self.strategy: Optional[StrategyEngine] = None
         self.risk_manager: Optional[RiskManager] = None
@@ -57,8 +66,8 @@ class BaseTask(ABC):
         初始化数据源和策略引擎
         """
         self.ds = ETFDataSource()
-        self.strategy = StrategyEngine()
-        self.risk_manager = RiskManager()
+        self.strategy = StrategyEngine(bar_interval=self._bar_interval)
+        self.risk_manager = RiskManager(bar_interval=self._bar_interval)
 
         mode = "INTRADAY" if (self._intraday and is_intraday()) else "standard"
         logger.info(f"[{self.name}] Data mode: {mode}")
@@ -204,14 +213,10 @@ class ETFTask(BaseTask):
         return ETF_POOL
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
-        data = {}
-        for code in pool:
-            df = self.ds.load_data(code, intraday=self.intraday)
-            if df.empty:
-                logger.error(f"Failed to load data for {code}. Skipping.")
-                continue
-            data[code] = df
-        return data
+        """
+        批量加载 ETF 数据（一次 PG 查询）
+        """
+        return self.ds.load_data_batch(pool, intraday=self.intraday, interval=self._bar_interval)
 
     def run_strategy(self, data: Dict[str, pd.DataFrame]) -> List[ETFScore]:
         ranked = self.strategy.rank_etfs(data)
@@ -323,14 +328,10 @@ class ShortTermStockTask(BaseTask):
         return STOCK_POOL
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
-        data = {}
-        for code in pool:
-            df = self.ds.load_stock_data(code, intraday=self.intraday)
-            if df.empty:
-                logger.error(f"Failed to load stock data for {code}. Skipping.")
-                continue
-            data[code] = df
-        return data
+        """
+        批量加载股票数据（一次 PG 查询）
+        """
+        return self.ds.load_stock_data_batch(pool, intraday=self.intraday, interval=self._bar_interval)
 
     def run_strategy(self, data: Dict[str, pd.DataFrame]) -> List[StockScore]:
         return self.strategy.rank_stocks_for_short_term(data, top_n=5)
@@ -388,14 +389,10 @@ class MidTermReboundTask(BaseTask):
         return MID_TERM_STOCK_POOL
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
-        data = {}
-        for code in pool:
-            df = self.ds.load_stock_data(code, intraday=self.intraday)
-            if df.empty:
-                logger.error(f"Failed to load stock data for {code}. Skipping.")
-                continue
-            data[code] = df
-        return data
+        """
+        批量加载股票数据（一次 PG 查询）
+        """
+        return self.ds.load_stock_data_batch(pool, intraday=self.intraday, interval=self._bar_interval)
 
     def run_strategy(self, data: Dict[str, pd.DataFrame]) -> List[ReboundStockScore]:
         return self.strategy.rank_stocks_for_mid_term_rebound(data, top_n=15)
@@ -455,17 +452,24 @@ class TaskRegistry:
     }
 
     @classmethod
-    def get_task(cls, name: str, target_date: str | None = None, intraday: bool = False) -> Optional[BaseTask]:
+    def get_task(
+        cls,
+        name: str,
+        target_date: str | None = None,
+        intraday: bool = False,
+        bar_interval: str = DEFAULT_INTERVAL,
+    ) -> Optional[BaseTask]:
         """
         根据任务名称获取任务实例
         :param name: 任务名称
         :param target_date: 目标日期，格式 YYYY-MM-DD
         :param intraday: 是否使用盘中实时行情
+        :param bar_interval: K线周期 ("1d"/"5m"/"15m"/"30m"/"60m")
         """
         task_class = cls._tasks.get(name)
         if task_class is None:
             return None
-        return task_class(target_date=target_date, intraday=intraday)
+        return task_class(target_date=target_date, intraday=intraday, bar_interval=bar_interval)
 
     @classmethod
     def list_tasks(cls) -> List[Dict[str, str]]:

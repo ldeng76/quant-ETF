@@ -2,78 +2,70 @@
 15分钟K线数据管理模块
 
 从1分钟K线数据计算生成15分钟K线，支持查询和更新
+使用 PostgreSQL 数据库存储。
 """
-
 import pandas as pd
 from pathlib import Path
 from loguru import logger
 from datetime import datetime, timedelta
 from typing import Optional, List
-from dataclasses import dataclass
 
-import duckdb
-
-from quant_etf.minute_collector import get_db_connection, query_minute_data
+from quant_etf.bar_interval import BarInterval, get_interval
 from quant_etf.conf import DATA_DIR
 
 
-def get_15min_db_path() -> Path:
-    """
-    获取15分钟数据数据库文件路径
-    """
-    minute_dir = DATA_DIR / "minute"
-    minute_dir.mkdir(parents=True, exist_ok=True)
-    return minute_dir / "minute_data_15m.duckdb"
+def _get_pg_conn():
+    """获取 PG 同步连接（单例）"""
+    import psycopg2
+    from quant_etf.dashboard.config import (
+        POSTGRES_HOST, POSTGRES_PORT,
+        POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
+    )
+    return psycopg2.connect(
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
+        database=POSTGRES_DB,
+    )
 
 
-def init_15min_db() -> duckdb.DuckDBPyConnection:
-    """
-    初始化15分钟数据数据库
-    """
-    db_path = get_15min_db_path()
-    conn = duckdb.connect(str(db_path))
-
-    conn.execute("""
+def init_15min_db():
+    """初始化15分钟数据数据库"""
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS minute_bars_15m (
-            code VARCHAR,
-            time TIMESTAMP,
-            open DOUBLE,
-            high DOUBLE,
-            low DOUBLE,
-            close DOUBLE,
-            volume BIGINT,
-            amount DOUBLE,
-            year INTEGER,
-            month INTEGER,
-            day INTEGER,
-            hour INTEGER,
-            minute INTEGER,
+            code        VARCHAR(20) NOT NULL,
+            time        TIMESTAMP NOT NULL,
+            open        NUMERIC(18, 4),
+            high        NUMERIC(18, 4),
+            low         NUMERIC(18, 4),
+            close       NUMERIC(18, 4),
+            volume      BIGINT,
+            amount      NUMERIC(18, 2),
+            year        INTEGER,
+            month       INTEGER,
+            day         INTEGER,
+            hour        INTEGER,
+            minute      INTEGER,
             PRIMARY KEY (code, time)
         )
     """)
-
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_code_time ON minute_bars_15m(code, time)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_minute_15m_code ON minute_bars_15m(code)
     """)
-
-    logger.info(f"Initialized 15min data database: {db_path}")
+    conn.commit()
+    logger.info("Ensured minute_bars_15m table exists")
     return conn
 
 
-def get_15min_db_connection() -> duckdb.DuckDBPyConnection:
+def resample_to_interval(df_1m: pd.DataFrame, interval: BarInterval) -> pd.DataFrame:
     """
-    获取15分钟数据库连接（单例模式）
-    """
-    if not hasattr(get_15min_db_connection, "_conn"):
-        get_15min_db_connection._conn = init_15min_db()
-    return get_15min_db_connection._conn
-
-
-def resample_to_15min(df_1m: pd.DataFrame) -> pd.DataFrame:
-    """
-    将1分钟K线重采样为15分钟K线
-    :param df_1m: 1分钟K线数据 DataFrame
-    :return: 15分钟K线数据 DataFrame
+    将1分钟K线重采样为指定周期K线
+    :param df_1m: 1分钟K线数据 DataFrame (必须有 time, open, high, low, close, volume, amount 列)
+    :param interval: BarInterval 周期配置
+    :return: 重采样后的 DataFrame
     """
     if df_1m.empty:
         return pd.DataFrame()
@@ -82,7 +74,7 @@ def resample_to_15min(df_1m: pd.DataFrame) -> pd.DataFrame:
     df = df.set_index("time")
 
     resampled = (
-        df.resample("15T", label="right", closed="right")
+        df.resample(interval.pandas_freq, label="right", closed="right")
         .agg(
             {
                 "open": "first",
@@ -97,7 +89,6 @@ def resample_to_15min(df_1m: pd.DataFrame) -> pd.DataFrame:
     )
 
     resampled = resampled.reset_index()
-
     resampled["year"] = resampled["time"].dt.year
     resampled["month"] = resampled["time"].dt.month
     resampled["day"] = resampled["time"].dt.day
@@ -107,6 +98,11 @@ def resample_to_15min(df_1m: pd.DataFrame) -> pd.DataFrame:
     return resampled
 
 
+def resample_to_15min(df_1m: pd.DataFrame) -> pd.DataFrame:
+    """向后兼容：将1分钟K线重采样为15分钟K线"""
+    return resample_to_interval(df_1m, get_interval("15m"))
+
+
 def generate_15min_for_code(code: str, start_date: Optional[datetime] = None) -> int:
     """
     为单个代码生成15分钟K线数据
@@ -114,21 +110,12 @@ def generate_15min_for_code(code: str, start_date: Optional[datetime] = None) ->
     :param start_date: 开始日期，如果为None则生成全部
     :return: 生成的记录数
     """
-    conn_1m = get_db_connection()
-    conn_15m = get_15min_db_connection()
+    from quant_etf.minute_collector import query_minute_data
 
-    where_clause = f"code = '{code}'"
     if start_date:
-        where_clause += f" AND time >= '{start_date.strftime('%Y-%m-%d')}'"
-
-    query = f"""
-        SELECT time, open, high, low, close, volume, amount
-        FROM minute_bars
-        WHERE {where_clause}
-        ORDER BY time
-    """
-
-    df_1m = conn_1m.execute(query).df()
+        df_1m = query_minute_data(code, start=start_date)
+    else:
+        df_1m = query_minute_data(code)
 
     if df_1m.empty:
         logger.warning(f"No 1min data found for {code}")
@@ -139,33 +126,42 @@ def generate_15min_for_code(code: str, start_date: Optional[datetime] = None) ->
     if df_15m.empty:
         return 0
 
-    df_15m["code"] = code
-    columns = [
-        "code",
-        "time",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "amount",
-        "year",
-        "month",
-        "day",
-        "hour",
-        "minute",
-    ]
-    df_15m = df_15m[columns]
+    conn = _get_pg_conn()
+    cur = conn.cursor()
 
-    conn_15m.execute("""
-        INSERT OR REPLACE INTO minute_bars_15m
-        (code, time, open, high, low, close, volume, amount, year, month, day, hour, minute)
-        SELECT code, time, open, high, low, close, volume, amount, year, month, day, hour, minute
-        FROM df_15m
-    """)
+    data = []
+    for _, row in df_15m.iterrows():
+        data.append((
+            code,
+            row["time"],
+            row["open"],
+            row["high"],
+            row["low"],
+            row["close"],
+            int(row["volume"]) if row["volume"] else 0,
+            float(row["amount"]) if row["amount"] else 0.0,
+            int(row["year"]) if row["year"] else None,
+            int(row["month"]) if row["month"] else None,
+            int(row["day"]) if row["day"] else None,
+            int(row["hour"]) if row["hour"] else None,
+            int(row["minute"]) if row["minute"] else None,
+        ))
 
-    logger.debug(f"Generated {len(df_15m)} 15min bars for {code}")
-    return len(df_15m)
+    cur.executemany("""
+        INSERT INTO minute_bars_15m (code, time, open, high, low, close, volume, amount, year, month, day, hour, minute)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (code, time) DO UPDATE SET
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume,
+            amount = EXCLUDED.amount
+    """, data)
+    conn.commit()
+
+    logger.debug(f"Generated {len(data)} 15min bars for {code}")
+    return len(data)
 
 
 def generate_15min_for_pool(
@@ -191,11 +187,18 @@ def generate_15min_for_pool(
 def query_15min_data(query: str) -> pd.DataFrame:
     """
     查询15分钟数据
-    :param query: SQL查询语句
+    :param query: SQL查询语句（未使用，保留兼容）
     :return: DataFrame
     """
-    conn = get_15min_db_connection()
-    return conn.execute(query).df()
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    # 直接执行查询（保留兼容性）
+    cur.execute(query)
+    rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame()
+    columns = [desc[0] for desc in cur.description]
+    return pd.DataFrame(rows, columns=columns)
 
 
 def get_15min_bars(
@@ -208,21 +211,31 @@ def get_15min_bars(
     :param end_time: 结束时间，默认为最新
     :return: DataFrame
     """
-    where_clause = f"code = '{code}'"
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+
     if end_time:
-        where_clause += f" AND time <= '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'"
+        cur.execute("""
+            SELECT * FROM minute_bars_15m
+            WHERE code = %s AND time <= %s
+            ORDER BY time DESC
+            LIMIT %s
+        """, [code, end_time, count])
+    else:
+        cur.execute("""
+            SELECT * FROM minute_bars_15m
+            WHERE code = %s
+            ORDER BY time DESC
+            LIMIT %s
+        """, [code, count])
 
-    query = f"""
-        SELECT * FROM minute_bars_15m
-        WHERE {where_clause}
-        ORDER BY time DESC
-        LIMIT {count}
-    """
+    rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame()
 
-    df = query_15min_data(query)
-    if not df.empty:
-        df = df.sort_values("time").reset_index(drop=True)
-
+    columns = [desc[0] for desc in cur.description]
+    df = pd.DataFrame(rows, columns=columns)
+    df = df.sort_values("time").reset_index(drop=True)
     return df
 
 
@@ -232,24 +245,22 @@ def update_15min_data(code: str) -> int:
     :param code: ETF代码
     :return: 更新数量
     """
-    conn_1m = get_db_connection()
+    from quant_etf.minute_collector import get_latest_minute_time
 
-    last_15min = conn_1m.execute(f"""
-        SELECT MAX(time) as last_time FROM minute_bars WHERE code = '{code}'
-    """).fetchone()[0]
-
-    if not last_15min:
+    last_1m = get_latest_minute_time(code)
+    if not last_1m:
         return generate_15min_for_code(code)
 
-    conn_15m = get_15min_db_connection()
-    last_15min_time = conn_15m.execute(f"""
-        SELECT MAX(time) as last_time FROM minute_bars_15m WHERE code = '{code}'
-    """).fetchone()[0]
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(time) FROM minute_bars_15m WHERE code = %s", [code])
+    result = cur.fetchone()
+    last_15m = result[0] if result and result[0] else None
 
-    if not last_15min_time:
+    if not last_15m:
         return generate_15min_for_code(code)
 
-    start_date = last_15min_time - timedelta(days=1)
+    start_date = last_15m - timedelta(days=1)
     return generate_15min_for_code(code, start_date)
 
 
@@ -259,12 +270,11 @@ def get_latest_15min_time(code: str) -> Optional[datetime]:
     :param code: ETF代码
     :return: 最新时间
     """
-    conn = get_15min_db_connection()
-    result = conn.execute(f"""
-        SELECT MAX(time) FROM minute_bars_15m WHERE code = '{code}'
-    """).fetchone()
-
-    return result[0] if result[0] else None
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(time) FROM minute_bars_15m WHERE code = %s", [code])
+    result = cur.fetchone()
+    return result[0] if result and result[0] else None
 
 
 def get_pool_15min_bars(codes: List[str], count: int = 200) -> dict[str, pd.DataFrame]:
@@ -280,3 +290,63 @@ def get_pool_15min_bars(codes: List[str], count: int = 200) -> dict[str, pd.Data
         if not df.empty:
             result[code] = df
     return result
+
+
+def get_minute_bars_for_interval(
+    code: str, interval: BarInterval, count: int = 200
+) -> pd.DataFrame:
+    """
+    获取指定代码的任意周期K线数据（从1分钟数据实时重采样）
+    :param code: 标的代码
+    :param interval: BarInterval 周期配置（不能是日线）
+    :param count: 需要的bar数量
+    :return: DataFrame，索引为time，列为 open/high/low/close/volume/amount
+    """
+    if interval.is_daily:
+        raise ValueError("get_minute_bars_for_interval does not support daily interval")
+
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+
+    # Fetch enough 1-min bars to resample into `count` target bars.
+    # Each target bar may need up to interval.bars_per_day 1-min bars,
+    # but we also need some extra to account for gaps.
+    fetch_count = count * interval.bars_per_day + interval.bars_per_day
+
+    cur.execute("""
+        SELECT time, open, high, low, close, volume, amount
+        FROM minute_bars
+        WHERE code = %s
+        ORDER BY time DESC
+        LIMIT %s
+    """, [code, fetch_count])
+
+    rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame()
+
+    columns = [desc[0] for desc in cur.description]
+    df_1m = pd.DataFrame(rows, columns=columns)
+    df_1m = df_1m.sort_values("time").reset_index(drop=True)
+
+    # Resample on-the-fly
+    df = resample_to_interval(df_1m, interval)
+
+    if df.empty:
+        return pd.DataFrame()
+
+    return df
+
+
+# ============================================================
+# 兼容层：保留 DuckDB 风格的函数
+# ============================================================
+
+def get_15min_db_path() -> Path:
+    """兼容函数"""
+    return Path("postgresql:minute_bars_15m")
+
+
+def get_15min_db_connection():
+    """兼容函数"""
+    return _get_pg_conn()

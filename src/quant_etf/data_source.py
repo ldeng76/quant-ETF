@@ -4,13 +4,16 @@ import sys
 from pathlib import Path
 from loguru import logger
 from datetime import datetime, timedelta
+from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from quant_etf.bar_interval import BarInterval, get_interval
 from quant_etf.conf import DATA_DIR, ETF_POOL
 from quant_etf.tdx import (
     get_tdx_path, parse_tdx_day_file, get_security_bars, get_xdxr_info,
     adjust_price_qfq, get_realtime_quote_single,
 )
 from quant_etf.trading_day import is_intraday
-from quant_etf.market_db import load_daily_from_db, save_daily_to_db, has_data_for_code
+from quant_etf.market_db import load_daily_from_db, load_daily_batch_from_db, save_daily_to_db
 
 _collect_info_path = Path(__file__).parent.parent / "collect_info"
 if str(_collect_info_path) not in sys.path:
@@ -162,6 +165,170 @@ class ETFDataSource:
         logger.warning("No stock name map found in data/meta/stock_code_name.json")
         return {}
 
+    def load_data_batch(self, codes: List[str], check_freshness: bool = True, allow_online: bool = True, adjust_qfq: bool = True, intraday: bool = False, interval: str = "1d") -> Dict[str, pd.DataFrame]:
+        """
+        批量加载 ETF 数据（一次 PG 查询）
+        优先级：本地 TDX 文件 > PG 缓存批量加载 > 在线获取
+        :param codes: ETF 代码列表
+        :param check_freshness: 是否检查数据新鲜度
+        :param allow_online: 是否允许在线获取数据
+        :param adjust_qfq: 是否进行前复权处理
+        :param intraday: 是否构造盘中临时日K线
+        :param interval: K线周期
+        :return: {code: DataFrame} 字典
+        """
+        bar_interval = get_interval(interval)
+        if not bar_interval.is_daily:
+            result: Dict[str, pd.DataFrame] = {}
+            for code in codes:
+                try:
+                    result[code] = self._load_minute_data_resampled(code, bar_interval)
+                except Exception as e:
+                    logger.error(f"Failed to load {interval} data for {code}: {e}")
+            return result
+
+        result: Dict[str, pd.DataFrame] = {}
+        need_online = []
+
+        # 1. 尝试从本地 TDX 文件加载
+        for code in codes:
+            tdx_path = get_tdx_path(code)
+            if tdx_path and tdx_path.exists():
+                try:
+                    df = parse_tdx_day_file(tdx_path)
+                    if not df.empty:
+                        if adjust_qfq:
+                            df = self._apply_qfq(code, df)
+                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
+                except Exception as e:
+                    logger.error(f"Failed to load TDX data for {code}: {e}")
+
+        loaded_codes = set(result.keys())
+        pg_candidates = [c for c in codes if c not in loaded_codes]
+        if not pg_candidates:
+            return result
+
+        # 2. 批量从 PG 缓存加载
+        try:
+            pg_data = load_daily_batch_from_db("etf_daily", pg_candidates)
+            for code in pg_candidates:
+                df = pg_data.get(code)
+                if df is None or df.empty:
+                    need_online.append(code)
+                    continue
+
+                last_date = df.index[-1].date()
+                is_fresh = self.check_is_fresh(df)
+                if not check_freshness or is_fresh:
+                    logger.info(f"Loaded ETF data for {code} from PG cache (last: {last_date})")
+                    result[code] = df  # 暂存，后续统一处理前复权
+                else:
+                    logger.debug(f"ETF {code}: PG cache stale (last: {last_date}), will fetch online")
+                    need_online.append(code)
+        except Exception as e:
+            logger.error(f"Error reading PG ETF cache (batch): {e}")
+            need_online.extend(pg_candidates)
+
+        # 批量并发处理前复权
+        if adjust_qfq and result:
+            self._apply_qfq_batch(list(result.keys()), result)
+
+        # 应用 intraday 处理
+        for code in list(result.keys()):
+            result[code] = self._append_intraday_if_needed(code, result[code], intraday, adjust_qfq)
+
+        # 3. 在线获取缺失数据
+        if allow_online and need_online:
+            for code in need_online:
+                try:
+                    logger.info(f"Fetching ETF data for {code} from online TDX server...")
+                    df = get_security_bars(code)
+                    if not df.empty:
+                        if adjust_qfq:
+                            df = self._apply_qfq(code, df)
+                        save_daily_to_db("etf_daily", code, df)
+                        logger.info(f"Saved online data to PG cache: {code} (last: {df.index[-1].date()})")
+                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
+                except Exception as e:
+                    logger.error(f"Failed to fetch online data for {code}: {e}")
+
+        return result
+
+    def load_stock_data_batch(self, codes: List[str], check_freshness: bool = True, allow_online: bool = True, intraday: bool = False, interval: str = "1d") -> Dict[str, pd.DataFrame]:
+        """
+        批量加载股票数据（一次 PG 查询）
+        :param codes: 股票代码列表
+        :param check_freshness: 是否检查数据新鲜度
+        :param allow_online: 是否允许在线获取数据
+        :param intraday: 是否构造盘中临时日K线
+        :param interval: K线周期
+        :return: {code: DataFrame} 字典
+        """
+        bar_interval = get_interval(interval)
+        if not bar_interval.is_daily:
+            result: Dict[str, pd.DataFrame] = {}
+            for code in codes:
+                try:
+                    result[code] = self._load_minute_data_resampled(code, bar_interval)
+                except Exception as e:
+                    logger.error(f"Failed to load {interval} data for stock {code}: {e}")
+            return result
+
+        result: Dict[str, pd.DataFrame] = {}
+        need_online = []
+
+        # 1. 尝试从本地 TDX 文件加载
+        for code in codes:
+            tdx_path = get_tdx_path(code)
+            if tdx_path and tdx_path.exists():
+                try:
+                    df = parse_tdx_day_file(tdx_path)
+                    if not df.empty:
+                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
+                except Exception as e:
+                    logger.error(f"Failed to load TDX stock data for {code}: {e}")
+
+        loaded_codes = set(result.keys())
+        pg_candidates = [c for c in codes if c not in loaded_codes]
+        if not pg_candidates:
+            return result
+
+        # 2. 批量从 PG 缓存加载
+        try:
+            pg_data = load_daily_batch_from_db("stock_daily", pg_candidates)
+            for code in pg_candidates:
+                df = pg_data.get(code)
+                if df is None or df.empty:
+                    need_online.append(code)
+                    continue
+
+                last_date = df.index[-1].date()
+                is_fresh = self.check_is_fresh(df)
+                if not check_freshness or is_fresh:
+                    logger.info(f"Loaded stock data for {code} from PG cache (last: {last_date})")
+                    result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
+                else:
+                    logger.debug(f"Stock {code}: PG cache stale (last: {last_date}), will fetch online")
+                    need_online.append(code)
+        except Exception as e:
+            logger.error(f"Error reading PG stock cache (batch): {e}")
+            need_online.extend(pg_candidates)
+
+        # 3. 在线获取缺失数据
+        if allow_online and need_online:
+            for code in need_online:
+                try:
+                    logger.info(f"Fetching stock data for {code} from online TDX server...")
+                    df = get_security_bars(code)
+                    if not df.empty:
+                        save_daily_to_db("stock_daily", code, df)
+                        logger.info(f"Saved online stock data to PG cache: {code} (last: {df.index[-1].date()})")
+                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
+                except Exception as e:
+                    logger.error(f"Failed to fetch online stock data for {code}: {e}")
+
+        return result
+
     def _save_cached_name_map(self, map_type: str, name_map: dict[str, str]):
         """
         将 name_map 写入本地缓存（原子写入，避免中途写坏）
@@ -243,19 +410,22 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Failed to load TDX data for {code}: {e}")
 
-        # 2. 尝试从 DuckDB 缓存加载
-        if has_data_for_code("etf_daily", code, self.data_dir):
-            try:
-                df = load_daily_from_db("etf_daily", code, self.data_dir)
-                if not df.empty:
-                    if not check_freshness or self.check_is_fresh(df):
-                        logger.info(f"Loaded ETF data for {code} from DuckDB cache (last: {df.index[-1].date()})")
-                        # 应用前复权处理
-                        if adjust_qfq:
-                            df = self._apply_qfq(code, df)
-                        return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
-            except Exception as e:
-                logger.error(f"Error reading DuckDB cache for {code}: {e}")
+        # 2. 尝试从 PG 缓存加载
+        try:
+            df = load_daily_from_db("etf_daily", code)
+            if not df.empty:
+                last_date = df.index[-1].date()
+                is_fresh = self.check_is_fresh(df)
+                if not check_freshness or is_fresh:
+                    logger.info(f"Loaded ETF data for {code} from PG cache (last: {last_date})")
+                    # 应用前复权处理
+                    if adjust_qfq:
+                        df = self._apply_qfq(code, df)
+                    return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
+                else:
+                    logger.debug(f"ETF {code}: PG cache stale (last: {last_date}), will fetch online")
+        except Exception as e:
+            logger.error(f"Error reading PG ETF cache for {code}: {e}")
 
         # 3. 尝试在线获取
         if allow_online:
@@ -266,14 +436,48 @@ class ETFDataSource:
                     # 应用前复权处理
                     if adjust_qfq:
                         df = self._apply_qfq(code, df)
-                    # 保存到 DuckDB 缓存
-                    save_daily_to_db("etf_daily", code, df, self.data_dir)
-                    logger.info(f"Saved online data to DuckDB cache: {code} (last: {df.index[-1].date()})")
+                    # 保存到 PG 缓存
+                    save_daily_to_db("etf_daily", code, df)
+                    logger.info(f"Saved online data to PG cache: {code} (last: {df.index[-1].date()})")
                     return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
             except Exception as e:
                 logger.error(f"Failed to fetch online data for {code}: {e}")
 
         raise RuntimeError(f"Failed to load ETF data for {code}. No TDX data found for {code}")
+
+    def load_data_with_interval(
+        self, code: str, interval: str = "1d", intraday: bool = False
+    ) -> pd.DataFrame:
+        """
+        加载指定周期的 ETF 数据
+        :param code: ETF 代码
+        :param interval: 周期 ("1d"/"5m"/"15m"/"30m"/"60m")
+        :param intraday: 日线模式下是否构造盘中bar（分钟模式忽略此参数）
+        :return: DataFrame (与日线结构一致: index=time, open/high/low/close/amount/volume/pct_chg)
+        """
+        bar_interval = get_interval(interval)
+        if bar_interval.is_daily:
+            return self.load_data(code, intraday=intraday)
+
+        return self._load_minute_data_resampled(code, bar_interval)
+
+    def _load_minute_data_resampled(
+        self, code: str, interval: BarInterval
+    ) -> pd.DataFrame:
+        """从1分钟数据重采样为目标周期"""
+        from quant_etf.minute_data_manager import get_minute_bars_for_interval
+
+        df = get_minute_bars_for_interval(code, interval, count=5000)
+        if df.empty:
+            raise RuntimeError(
+                f"No minute data for {code} at {interval.label} interval. "
+                f"Run 'quant-etf minute-backfill' first."
+            )
+
+        df = df.set_index("time")
+        df["pct_chg"] = df["close"].pct_change() * 100
+        df = df[["open", "high", "low", "close", "amount", "volume", "pct_chg"]]
+        return df
 
     def _append_intraday_if_needed(self, code: str, df: pd.DataFrame, intraday: bool, adjust_qfq: bool) -> pd.DataFrame:
         """
@@ -336,8 +540,8 @@ class ETFDataSource:
         """
         try:
             table = "stock_daily" if is_stock else "etf_daily"
-            save_daily_to_db(table, code, df, self.data_dir)
-            logger.info(f"Saved intraday bar to DuckDB cache: {table}/{code} (date: {df.index[-1].date()})")
+            save_daily_to_db(table, code, df)
+            logger.info(f"Saved intraday bar to PG cache: {table}/{code} (date: {df.index[-1].date()})")
         except Exception as e:
             logger.warning(f"Failed to save intraday bar to DuckDB cache for {code}: {e}")
 
@@ -353,13 +557,13 @@ class ETFDataSource:
             except Exception as e:
                 logger.debug(f"Failed to load unadjusted TDX data for {code}: {e}")
 
-        # 尝试从 DuckDB 缓存加载
+        # 尝试从 PG 缓存加载
         try:
-            df = load_daily_from_db("etf_daily", code, self.data_dir)
+            df = load_daily_from_db("etf_daily", code)
             if not df.empty:
                 return df
         except Exception as e:
-            logger.debug(f"Failed to load unadjusted DuckDB cache data for {code}: {e}")
+            logger.debug(f"Failed to load PG cache data for {code}: {e}")
 
         return None
 
@@ -383,6 +587,32 @@ class ETFDataSource:
         
         return df
 
+    def _apply_qfq_batch(self, codes: List[str], result: Dict[str, pd.DataFrame]) -> None:
+        """
+        批量并发处理前复权（一次性获取所有 xdxr 信息）
+        :param codes: 需要处理的 ETF 代码列表
+        :param result: 结果字典（in-place 修改）
+        """
+        def _apply_single(code: str) -> tuple:
+            df = result.get(code)
+            if df is None or df.empty:
+                return code, None
+            try:
+                xdxr_df = get_xdxr_info(code)
+                if not xdxr_df.empty:
+                    df = adjust_price_qfq(df, xdxr_df)
+            except Exception as e:
+                logger.warning(f"Failed to apply qfq for {code}: {e}")
+            return code, df
+
+        max_workers = min(10, len(codes))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_apply_single, code): code for code in codes}
+            for future in as_completed(futures):
+                code, df = future.result()
+                if df is not None and not df.empty:
+                    result[code] = df
+
     def load_stock_data(self, code: str, force_update: bool = False, check_freshness: bool = True, allow_online: bool = True, intraday: bool = False) -> pd.DataFrame:
         """
         加载股票数据
@@ -405,16 +635,19 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Failed to load TDX stock data for {code}: {e}")
 
-        # 2. 尝试从 DuckDB 缓存加载
-        if has_data_for_code("stock_daily", code, self.data_dir):
-            try:
-                df = load_daily_from_db("stock_daily", code, self.data_dir)
-                if not df.empty:
-                    if not check_freshness or self.check_is_fresh(df):
-                        logger.info(f"Loaded stock data for {code} from DuckDB cache (last: {df.index[-1].date()})")
-                        return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
-            except Exception as e:
-                logger.error(f"Error reading DuckDB stock cache for {code}: {e}")
+        # 2. 尝试从 PG 缓存加载
+        try:
+            df = load_daily_from_db("stock_daily", code)
+            if not df.empty:
+                last_date = df.index[-1].date()
+                is_fresh = self.check_is_fresh(df)
+                if not check_freshness or is_fresh:
+                    logger.info(f"Loaded stock data for {code} from PG cache (last: {last_date})")
+                    return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
+                else:
+                    logger.debug(f"Stock {code}: PG cache stale (last: {last_date}), will fetch online")
+        except Exception as e:
+            logger.error(f"Error reading PG stock cache for {code}: {e}")
 
         # 3. 尝试在线获取
         if allow_online:
@@ -422,9 +655,9 @@ class ETFDataSource:
                 logger.info(f"Fetching stock data for {code} from online TDX server...")
                 df = get_security_bars(code)
                 if not df.empty:
-                    # 保存到 DuckDB 缓存
-                    save_daily_to_db("stock_daily", code, df, self.data_dir)
-                    logger.info(f"Saved online stock data to DuckDB cache: {code} (last: {df.index[-1].date()})")
+                    # 保存到 PG 缓存
+                    save_daily_to_db("stock_daily", code, df)
+                    logger.info(f"Saved online stock data to PG cache: {code} (last: {df.index[-1].date()})")
                     return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
             except Exception as e:
                 logger.error(f"Failed to fetch online stock data for {code}: {e}")

@@ -4,6 +4,7 @@ from loguru import logger
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
+from quant_etf.bar_interval import bars_for_days, get_interval, DEFAULT_INTERVAL
 from quant_etf.conf import MOMENTUM_WEIGHTS
 
 @dataclass
@@ -41,16 +42,23 @@ class ReboundStockScore:
     rebound_ok: bool
 
 class StrategyEngine:
-    def __init__(self, weights: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        weights: Optional[Dict[str, float]] = None,
+        bar_interval: str = DEFAULT_INTERVAL,
+    ):
         """
         初始化策略引擎
         :param weights: 动量因子权重，如果为 None 则使用 conf.py 中的默认配置
+        :param bar_interval: K线周期 ("1d"/"5m"/"15m"/"30m"/"60m")
         """
+        self._bar_interval = get_interval(bar_interval)
+        self._bpd = self._bar_interval.bars_per_day
         if weights:
             self.weights = weights
         else:
             self.weights = MOMENTUM_WEIGHTS
-        
+
         # 归一化权重，确保和为 1 (可选，但推荐)
         total = sum(self.weights.values())
         if abs(total - 1.0) > 1e-6:
@@ -62,23 +70,23 @@ class StrategyEngine:
         """
         计算单只 ETF 的各周期涨幅
         """
-        if df.empty or len(df) < 60:
+        min_bars = bars_for_days(60, self._bar_interval) + 1
+        if df.empty or len(df) < min_bars:
             return {}
 
-        # 获取最新价格
         current_price = df.iloc[-1]["close"]
-        
-        # 计算各周期前的价格 (使用 shift 或者 iloc)
-        # 注意：这里假设数据是连续的日线。如果有停牌，shift 可能不准确，但在 ETF 中影响较小
-        # 更严谨的做法是按交易日历查找，这里简化处理
-        
+
+        b60 = bars_for_days(60, self._bar_interval)
+        b20 = bars_for_days(20, self._bar_interval)
+        b10 = bars_for_days(10, self._bar_interval)
+        b5 = bars_for_days(5, self._bar_interval)
+
         try:
-            p60 = df.iloc[-61]["close"]
-            p20 = df.iloc[-21]["close"]
-            p10 = df.iloc[-11]["close"]
-            p5 = df.iloc[-6]["close"]
+            p60 = df.iloc[-(b60 + 1)]["close"]
+            p20 = df.iloc[-(b20 + 1)]["close"]
+            p10 = df.iloc[-(b10 + 1)]["close"]
+            p5 = df.iloc[-(b5 + 1)]["close"]
         except IndexError:
-            # 数据长度不足
             return {}
 
         r60 = (current_price - p60) / p60
@@ -107,13 +115,13 @@ class StrategyEngine:
         :return: 排序后的 ETFScore 列表
         """
         scores = []
-        
+
         for code, df in etf_data.items():
             returns = self.calculate_returns(df)
             if not returns:
                 logger.warning(f"Insufficient data for {code}, skipping.")
                 continue
-                
+
             # 计算加权得分
             # 这里简单直接加权。
             # 进阶优化：可以先对每个因子在所有ETF中进行 Rank (0-100)，再加权 Rank。
@@ -125,7 +133,7 @@ class StrategyEngine:
                 returns["r10"] * self.weights["r10"] +
                 returns["r5"] * self.weights["r5"]
             )
-            
+
             scores.append(ETFScore(
                 code=code,
                 score=final_score,
@@ -134,7 +142,7 @@ class StrategyEngine:
                 r10=returns["r10"],
                 r5=returns["r5"]
             ))
-            
+
         # 按分数降序排列
         scores.sort(key=lambda x: x.score, reverse=True)
         return scores
@@ -149,16 +157,16 @@ class StrategyEngine:
         target = {}
         if not ranked_scores:
             return target
-            
+
         # 取前 N 名
         selected = ranked_scores[:top_n]
-        
+
         # 简单等权分配
         # 也可以根据分数分配权重
         weight = 1.0 / len(selected)
         for item in selected:
             target[item.code] = weight
-            
+
         return target
 
     def calculate_short_term_stock_score(self, code: str, df: pd.DataFrame) -> Optional[StockScore]:
@@ -172,17 +180,22 @@ class StrategyEngine:
         close_prices = df["close"]
         volume = df["volume"]
 
-        if len(close_prices) < 60:
+        min_bars = bars_for_days(60, self._bar_interval)
+        if len(close_prices) < min_bars:
             return None
 
-        ma5 = close_prices.rolling(window=5).mean().iloc[-1]
-        ma10 = close_prices.rolling(window=10).mean().iloc[-1]
-        ma20 = close_prices.rolling(window=20).mean().iloc[-1]
+        w5 = bars_for_days(5, self._bar_interval)
+        w10 = bars_for_days(10, self._bar_interval)
+        w20 = bars_for_days(20, self._bar_interval)
+
+        ma5 = close_prices.rolling(window=w5).mean().iloc[-1]
+        ma10 = close_prices.rolling(window=w10).mean().iloc[-1]
+        ma20 = close_prices.rolling(window=w20).mean().iloc[-1]
         current_close = close_prices.iloc[-1]
 
         trend_ok = bool(current_close > ma20 and ma5 > ma10 and ma10 > ma20)
 
-        vol20 = volume.rolling(window=20).mean().iloc[-1]
+        vol20 = volume.rolling(window=w20).mean().iloc[-1]
         vol_last = volume.iloc[-1]
         if pd.isna(vol20) or vol20 <= 0:
             volume_ratio = 1.0
@@ -226,9 +239,15 @@ class StrategyEngine:
 
     def calculate_rebound_stock_score(self, code: str, df: pd.DataFrame) -> Optional[ReboundStockScore]:
         """
-        计算“前期高位回撤 -> 近期止跌 -> 出现回升迹象”的评分
+        计算"前期高位回撤 -> 近期止跌 -> 出现回升迹象"的评分
         """
-        if df.empty or len(df) < 140:
+        w140 = bars_for_days(140, self._bar_interval)
+        w120 = bars_for_days(120, self._bar_interval)
+        w20 = bars_for_days(20, self._bar_interval)
+        w10 = bars_for_days(10, self._bar_interval)
+        w5 = bars_for_days(5, self._bar_interval)
+
+        if df.empty or len(df) < w140:
             return None
 
         if "close" not in df.columns or "volume" not in df.columns:
@@ -241,7 +260,7 @@ class StrategyEngine:
         if not np.isfinite(current_close) or current_close <= 0:
             return None
 
-        high_120 = float(close_prices.iloc[-120:].max())
+        high_120 = float(close_prices.iloc[-w120:].max())
         if not np.isfinite(high_120) or high_120 <= 0:
             return None
 
@@ -249,7 +268,7 @@ class StrategyEngine:
         if drawdown > -0.12:
             return None
 
-        low_20 = float(close_prices.iloc[-20:].min())
+        low_20 = float(close_prices.iloc[-w20:].min())
         if not np.isfinite(low_20) or low_20 <= 0:
             return None
 
@@ -257,7 +276,7 @@ class StrategyEngine:
         if bounce_from_low < 0.04:
             return None
 
-        min_idx_20 = int(close_prices.iloc[-20:].idxmin().toordinal())
+        min_idx_20 = int(close_prices.iloc[-w20:].idxmin().toordinal())
         last_idx = int(close_prices.index[-1].toordinal())
         stabilization_ok = (last_idx - min_idx_20) >= 4
 
@@ -268,11 +287,11 @@ class StrategyEngine:
         if returns["r5"] <= 0 or returns["r10"] < -0.01:
             return None
 
-        ma5 = float(close_prices.rolling(window=5).mean().iloc[-1])
-        ma10 = float(close_prices.rolling(window=10).mean().iloc[-1])
+        ma5 = float(close_prices.rolling(window=w5).mean().iloc[-1])
+        ma10 = float(close_prices.rolling(window=w10).mean().iloc[-1])
         rebound_ok = bool(current_close > ma5 and ma5 > ma10)
 
-        vol20 = volume.rolling(window=20).mean().iloc[-1]
+        vol20 = volume.rolling(window=w20).mean().iloc[-1]
         vol_last = volume.iloc[-1]
         if pd.isna(vol20) or vol20 <= 0:
             volume_ratio = 1.0
@@ -307,7 +326,7 @@ class StrategyEngine:
 
     def rank_stocks_for_mid_term_rebound(self, stock_data: Dict[str, pd.DataFrame], top_n: int = 10) -> List[ReboundStockScore]:
         """
-        从 MID_TERM_STOCK_POOL 中挑出“回撤后止跌回升”的股票
+        从 MID_TERM_STOCK_POOL 中挑出"回撤后止跌回升"的股票
         """
         scores: List[ReboundStockScore] = []
         for code, df in stock_data.items():

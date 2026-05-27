@@ -21,6 +21,10 @@ import argparse
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载 .env 环境变量
+load_dotenv()
 
 
 def cmd_daily_run(args):
@@ -59,7 +63,7 @@ def cmd_daily_run(args):
         task_names = ["etf", "short", "mid"]
         for task_name in task_names:
             logger.info(f"Running task: {task_name} for date {date_str}")
-            task = TaskRegistry.get_task(task_name, target_date=date_str, intraday=intraday_for_this_date)
+            task = TaskRegistry.get_task(task_name, target_date=date_str, intraday=intraday_for_this_date, bar_interval=args.interval)
             if task:
                 task.run()
             else:
@@ -409,7 +413,7 @@ def cmd_run(args):
         logger.error(f"Unknown task: {task_name}")
         sys.exit(1)
 
-    task = TaskRegistry.get_task(task_name, target_date=args.date, intraday=args.intraday)
+    task = TaskRegistry.get_task(task_name, target_date=args.date, intraday=args.intraday, bar_interval=args.interval)
     if task is None:
         logger.error(f"Failed to load task: {task_name}")
         sys.exit(1)
@@ -460,6 +464,9 @@ def build_parser():
     p = sub.add_parser("daily-run", help="运行每日选股任务 (etf/short/mid)")
     p.add_argument("--days", "-d", type=int, default=1, help="运行最近N天 (默认: 1)")
     p.add_argument("--date", type=str, help="指定特定日期 (格式: YYYY-MM-DD)")
+    p.add_argument("--interval", type=str, default="1d",
+                   choices=["1d", "5m", "15m", "30m", "60m"],
+                   help="K线周期 (默认: 1d 日线)")
 
     p = sub.add_parser("dashboard", help="启动 Dashboard 监控系统")
     p.add_argument("--port", "-p", type=int, default=8522, help="监听端口 (默认: 8522)")
@@ -484,6 +491,9 @@ def build_parser():
     p.add_argument("task", nargs="?", default="etf", help="任务名称: etf/short/mid (默认: etf)")
     p.add_argument("--date", type=str, help="指定日期 (格式: YYYY-MM-DD)")
     p.add_argument("--intraday", action="store_true", help="使用盘中实时行情构造今日临时日K线")
+    p.add_argument("--interval", type=str, default="1d",
+                   choices=["1d", "5m", "15m", "30m", "60m"],
+                   help="K线周期 (默认: 1d 日线)")
 
     sub.add_parser("list-tasks", help="列出所有可用选股任务")
 
