@@ -9,6 +9,7 @@ DASHBOARD_DB_PATH = DATA_DIR / "dashboard.db"
 RESULTS_DUCKDB_PATH = DATA_DIR / "results" / "results.duckdb"
 ALERTS_DUCKDB_PATH = DATA_DIR / "alerts" / "alerts.duckdb"
 MINUTE_DUCKDB_PATH = DATA_DIR / "minute" / "minute_data.duckdb"
+MARKET_DUCKDB_PATH = DATA_DIR / "market.duckdb"
 
 # 元数据
 STOCK_CODE_NAME_PATH = DATA_DIR / "meta" / "stock_code_name.json"

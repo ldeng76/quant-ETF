@@ -11,7 +11,20 @@ import pandas as pd
 import pytest
 
 from quant_etf.tdx import get_tdx_path, parse_tdx_day_file
+from quant_etf.market_db import (
+    save_daily_to_db,
+    load_daily_from_db,
+    has_data_for_code,
+    close_all_market_db_connections,
+)
 from .conftest import write_tdx_day_file
+
+
+@pytest.fixture(autouse=True)
+def cleanup():
+    """每个测试后清理所有连接"""
+    yield
+    close_all_market_db_connections()
 
 
 class TestTdxPathResolutionE2E:
@@ -87,8 +100,8 @@ class TestDataSourceWithMockTdxE2E:
         assert "close" in df.columns
         assert len(df) > 60  # Our mock has 300 days
 
-    def test_load_data_caches_to_csv(self, mock_tdx_data, tmp_path):
-        """When TDX data is loaded, should cache to CSV."""
+    def test_load_data_caches_to_duckdb(self, mock_tdx_data, tmp_path):
+        """When TDX data is loaded, data_dir should be created."""
         from quant_etf.data_source import ETFDataSource
 
         data_dir = tmp_path / "data"
@@ -96,9 +109,40 @@ class TestDataSourceWithMockTdxE2E:
             ds = ETFDataSource(data_dir=data_dir)
             ds.load_data("510050", check_freshness=False)
 
-        # TDX data is loaded directly, not cached to CSV (only online data is cached)
+        # TDX data is loaded directly, not cached to DuckDB (only online data is cached)
         # This test verifies the data_dir structure is created
         assert data_dir.exists()
+
+    def test_duckdb_cache_round_trip(self, tmp_path):
+        """Data written to DuckDB should be readable via load_data."""
+        from quant_etf.data_source import ETFDataSource
+
+        code = "510050"
+        data_dir = tmp_path / "data"
+        ds = ETFDataSource(data_dir=data_dir)
+
+        # 直接写入 DuckDB 缓存
+        dates = pd.bdate_range(end=datetime.now().date(), periods=10, freq="B")
+        mock_df = pd.DataFrame(
+            {
+                "open": [1.0 + i * 0.1 for i in range(10)],
+                "high": [1.1 + i * 0.1 for i in range(10)],
+                "low": [0.9 + i * 0.1 for i in range(10)],
+                "close": [1.0 + i * 0.1 for i in range(10)],
+                "amount": [1e6] * 10,
+                "volume": [1e5] * 10,
+                "pct_chg": [0.5] * 10,
+            },
+            index=dates,
+        )
+        save_daily_to_db("etf_daily", code, mock_df, data_dir=data_dir)
+
+        # 通过 data_source 读取
+        loaded = ds.load_data(code, check_freshness=False, allow_online=False)
+        assert not loaded.empty
+        assert len(loaded) == 10
+        assert loaded.index.name == "date"
+        assert "close" in loaded.columns
 
     def test_load_data_freshness_check(self, mock_tdx_data, tmp_path):
         """Freshness check should pass for recent data."""

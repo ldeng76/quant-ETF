@@ -3,6 +3,7 @@
 通过后台线程调用 TaskRegistry 执行策略
 """
 import asyncio
+import json
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,42 @@ from ..db import query
 
 _executor = ThreadPoolExecutor(max_workers=2)
 _running_tasks: dict[str, dict] = {}
+
+# 名称映射缓存（从 stock_code_name.json 加载）
+_name_map_cache: dict[str, str] | None = None
+
+
+def _load_name_map() -> dict[str, str]:
+    """从 data/meta/stock_code_name.json 加载 code→name 映射，用于修正 CSV 中的 Unknown"""
+    global _name_map_cache
+    if _name_map_cache is not None:
+        return _name_map_cache
+    meta_path = PROJECT_ROOT / "data" / "meta" / "stock_code_name.json"
+    if meta_path.exists():
+        try:
+            items = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(items, list):
+                _name_map_cache = {
+                    item["code"]: item["name"]
+                    for item in items if "code" in item and "name" in item
+                }
+                return _name_map_cache
+        except Exception as e:
+            logger.warning(f"Failed to load name map: {e}")
+    _name_map_cache = {}
+    return _name_map_cache
+
+
+def _fix_names(records: list[dict]) -> None:
+    """用 stock_code_name.json 修正 records 中 name 为 Unknown 或空的条目"""
+    name_map = _load_name_map()
+    if not name_map:
+        return
+    for r in records:
+        code = r.get("code", "")
+        name = r.get("name", "")
+        if code in name_map and (not name or name == "Unknown"):
+            r["name"] = name_map[code]
 
 
 async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
@@ -66,6 +103,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
                 records = df.to_dict("records")
                 # 过滤无效行
                 records = [r for r in records if r.get("code")]
+                _fix_names(records)
                 _running_tasks[run_id]["result"] = records
                 _running_tasks[run_id]["count"] = len(records)
             else:
@@ -319,5 +357,6 @@ def get_history_summary(
     # 排序：在榜天数降序，最晚上榜日期降序
     results.sort(key=lambda x: (-x["on_days"], x["last_on_date"]))
 
+    _fix_names(results)
     _history_cache[cache_key] = (datetime.now(), results)
     return results

@@ -2,23 +2,38 @@ import pandas as pd
 import pytest
 from datetime import datetime
 from quant_etf.data_source import ETFDataSource
+from quant_etf.market_db import save_daily_to_db, close_all_market_db_connections
 
 
-def test_load_data_from_cache(tmp_path):
+@pytest.fixture(autouse=True)
+def cleanup():
+    """每个测试后清理所有连接"""
+    yield
+    close_all_market_db_connections()
+
+
+def test_load_data_from_duckdb_cache(tmp_path):
     """
-    测试从缓存加载数据
+    测试从 DuckDB 缓存加载数据
     """
-    ds = ETFDataSource(data_dir=tmp_path)
     code = "test_code"
+    today = datetime.now().date()
+    mock_df = pd.DataFrame(
+        {
+            "open": [1.0],
+            "high": [1.2],
+            "low": [0.9],
+            "close": [1.1],
+            "amount": [1000000.0],
+            "volume": [1000.0],
+            "pct_chg": [0.5],
+        },
+        index=pd.DatetimeIndex([today]),
+    )
+    save_daily_to_db("etf_daily", code, mock_df, data_dir=tmp_path)
 
-    etf_dir = tmp_path / "etf"
-    etf_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = etf_dir / f"{code}.csv"
-    today = datetime.now().strftime("%Y-%m-%d")
-    mock_data = f"date,open,close,high,low,volume\n{today},1.0,1.1,1.2,0.9,1000"
-    cache_file.write_text(mock_data)
-
-    df = ds.load_data(code, force_update=False, check_freshness=False)
+    ds = ETFDataSource(data_dir=tmp_path)
+    df = ds.load_data(code, check_freshness=False, allow_online=False)
     assert not df.empty
     assert len(df) == 1
     assert df.iloc[0]["close"] == 1.1
