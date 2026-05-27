@@ -17,17 +17,23 @@
 - [src/quant_etf/dashboard/services/strategy_runner.py](file://src/quant_etf/dashboard/services/strategy_runner.py)
 - [src/quant_etf/dashboard/services/alert_engine.py](file://src/quant_etf/dashboard/services/alert_engine.py)
 - [src/quant_etf/dashboard/services/portfolio_sync.py](file://src/quant_etf/dashboard/services/portfolio_sync.py)
+- [src/quant_etf/dashboard/templates/base.html](file://src/quant_etf/dashboard/templates/base.html)
 - [src/quant_etf/dashboard/templates/strategy/index.html](file://src/quant_etf/dashboard/templates/strategy/index.html)
 - [src/quant_etf/dashboard/templates/strategy/_content.html](file://src/quant_etf/dashboard/templates/strategy/_content.html)
 - [src/quant_etf/dashboard/templates/strategy/_results.html](file://src/quant_etf/dashboard/templates/strategy/_results.html)
+- [src/quant_etf/dashboard/templates/strategy/_sell_signals.html](file://src/quant_etf/dashboard/templates/strategy/_sell_signals.html)
+- [src/quant_etf/dashboard/templates/strategy/_history_summary.html](file://src/quant_etf/dashboard/templates/strategy/_history_summary.html)
+- [src/quant_etf/dashboard/templates/portfolio/_content.html](file://src/quant_etf/dashboard/templates/portfolio/_content.html)
+- [src/quant_etf/dashboard/templates/alerts/_content.html](file://src/quant_etf/dashboard/templates/alerts/_content.html)
+- [src/quant_etf/dashboard/templates/monitor/_content.html](file://src/quant_etf/dashboard/templates/monitor/_content.html)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 更新了策略执行界面部分，反映从Chart.js图表改为静态HTML表格的变更
-- 更新了前端交互机制，说明从HTMX轮询改为原生fetch API的实现
-- 新增了错误处理和用户反馈机制的详细说明
-- 更新了策略执行流程图和相关架构图
+- 新增ETF卖信号API端点和模板集成：添加/api/strategy/sell-signals和/api/strategy/history-summary端点，以及_sell_signals.html模板的集成
+- 更新策略执行界面，集成卖出信号检测功能，提供今日掉榜ETF的可视化提示
+- 新增历史汇总API端点，支持查看最近N天策略标的的历史表现
+- 增强策略结果页面，自动检测并显示卖出信号和历史汇总信息
 
 ## 目录
 1. [简介](#简介)
@@ -44,7 +50,7 @@
 ## 简介
 本项目为Quant-ETF的Dashboard监控系统，采用FastAPI + HTMX + SQLite/DuckDB + SSE的全栈架构。系统提供总览页面、持仓管理、策略执行、监控调度、告警管理与设置页面等核心功能，并通过SSE实现实时事件推送，结合HTMX实现无刷新页面片段更新，提升用户体验。数据库方面，看板业务数据使用SQLite，策略结果与监控信号使用DuckDB，形成清晰的数据分层。
 
-**更新** 策略执行界面已从依赖Chart.js的动态图表改为静态HTML表格展示，使用原生fetch API替代HTMX进行轮询控制，增强了错误处理和用户反馈机制。
+**更新** Dashboard模板已全面中文化，支持中文策略名称显示和中文界面元素。策略执行界面已从依赖Chart.js的动态图表改为静态HTML表格展示，使用原生fetch API替代HTMX进行轮询控制，增强了错误处理和用户反馈机制。新增ETF卖信号检测功能，能够自动识别今日掉榜的ETF并提供可视化提示，同时提供历史汇总分析功能。
 
 ## 项目结构
 系统采用按功能域划分的目录结构，核心模块包括：
@@ -123,13 +129,15 @@ SYNC --> DUCKDB
   - 告警引擎：内置规则检查（新进入前三、动量突变、持仓偏离），保存告警至数据库。
   - 持仓同步：从DuckDB读取最新价格，更新SQLite中的current_price并通过SSE广播。
 
+**更新** 新增策略运行器服务，提供ETF卖信号检测和历史汇总分析功能，支持严格模式的今日掉榜检测算法。
+
 **章节来源**
 - [src/quant_etf/dashboard/app.py:17-92](file://src/quant_etf/dashboard/app.py#L17-L92)
 - [src/quant_etf/dashboard/config.py:1-25](file://src/quant_etf/dashboard/config.py#L1-L25)
 - [src/quant_etf/dashboard/db.py:69-133](file://src/quant_etf/dashboard/db.py#L69-L133)
 - [src/quant_etf/dashboard/services/sse_manager.py:10-45](file://src/quant_etf/dashboard/services/sse_manager.py#L10-L45)
 - [src/quant_etf/dashboard/services/scheduler.py:15-82](file://src/quant_etf/dashboard/services/scheduler.py#L15-L82)
-- [src/quant_etf/dashboard/services/strategy_runner.py:25-164](file://src/quant_etf/dashboard/services/strategy_runner.py#L25-L164)
+- [src/quant_etf/dashboard/services/strategy_runner.py:25-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L25-L323)
 - [src/quant_etf/dashboard/services/alert_engine.py:20-120](file://src/quant_etf/dashboard/services/alert_engine.py#L20-L120)
 - [src/quant_etf/dashboard/services/portfolio_sync.py:15-87](file://src/quant_etf/dashboard/services/portfolio_sync.py#L15-L87)
 
@@ -244,11 +252,13 @@ P->>S : 广播 portfolio_update 事件
 
 ### 策略执行API与前端交互
 
-**更新** 策略执行界面已从Chart.js图表改为静态HTML表格展示，使用原生fetch API进行轮询控制，增强了错误处理和用户反馈机制。
+**更新** 策略执行界面已从Chart.js图表改为静态HTML表格展示，使用原生fetch API进行轮询控制，增强了错误处理和用户反馈机制。新增ETF卖信号检测功能，能够在策略执行完成后自动检测今日掉榜的ETF并提供可视化提示。
 
 - 列表策略：返回TaskRegistry中的可用策略。
 - 执行策略：异步启动策略执行，返回run_id；支持轮询状态与查看结果。
 - 结果处理：读取CSV结果，对比上一次结果触发告警，SSE广播策略结果与错误事件。
+- 卖出信号检测：基于历史汇总数据，严格模式检测今日掉榜的ETF。
+- 历史汇总分析：提供最近N天策略标的的历史表现统计。
 
 ```mermaid
 sequenceDiagram
@@ -272,27 +282,39 @@ C->>ST : GET /api/strategy/status/{run_id}
 ST-->>C : 任务状态
 C->>ST : GET /api/strategy/results/{run_id}
 ST-->>C : 渲染结果片段
+C->>ST : GET /api/strategy/sell-signals?strategy=etf
+ST-->>C : 渲染卖出信号片段
+C->>ST : GET /api/strategy/history-summary?strategy=etf&days=30
+ST-->>C : 渲染历史汇总片段
 ```
 
 **图示来源**
-- [src/quant_etf/dashboard/routes/strategy.py:24-53](file://src/quant_etf/dashboard/routes/strategy.py#L24-L53)
-- [src/quant_etf/dashboard/services/strategy_runner.py:25-126](file://src/quant_etf/dashboard/services/strategy_runner.py#L25-L126)
+- [src/quant_etf/dashboard/routes/strategy.py:24-82](file://src/quant_etf/dashboard/routes/strategy.py#L24-L82)
+- [src/quant_etf/dashboard/services/strategy_runner.py:25-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L25-L323)
 - [src/quant_etf/dashboard/services/alert_engine.py:82-96](file://src/quant_etf/dashboard/services/alert_engine.py#L82-L96)
 
 **章节来源**
-- [src/quant_etf/dashboard/routes/strategy.py:1-53](file://src/quant_etf/dashboard/routes/strategy.py#L1-L53)
-- [src/quant_etf/dashboard/services/strategy_runner.py:1-164](file://src/quant_etf/dashboard/services/strategy_runner.py#L1-L164)
+- [src/quant_etf/dashboard/routes/strategy.py:1-83](file://src/quant_etf/dashboard/routes/strategy.py#L1-L83)
+- [src/quant_etf/dashboard/services/strategy_runner.py:1-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L1-L323)
 - [src/quant_etf/dashboard/services/alert_engine.py:1-120](file://src/quant_etf/dashboard/services/alert_engine.py#L1-L120)
 
 ### 前端策略执行界面与交互机制
 
-**更新** 前端策略执行界面已从HTMX轮询改为原生fetch API实现，移除了Chart.js依赖，使用静态HTML表格展示结果。
+**更新** 前端策略执行界面已从HTMX轮询改为原生fetch API实现，移除了Chart.js依赖，使用静态HTML表格展示结果。新增卖出信号检测功能，能够在策略执行完成后自动检测今日掉榜的ETF并显示红色警告提示。
 
 - 策略选择：通过fetch API动态加载可用策略列表，支持多选。
 - 执行控制：使用原生fetch API提交执行请求，显示执行进度指示器。
 - 结果展示：静态HTML表格展示策略结果，移除Chart.js图表依赖。
+- 卖出信号集成：在策略执行完成后自动检测并显示今日掉榜ETF的卖出信号。
+- 历史汇总展示：提供最近N天策略标的的历史表现统计表格。
 - 错误处理：完善的错误处理机制，提供用户友好的错误反馈。
 - 轮询机制：使用原生JavaScript定时器进行状态轮询，自动刷新结果。
+
+**更新** Dashboard模板中文化实现细节：
+- 中文策略名称显示：策略列表中的策略名称直接使用中文标题显示
+- 字段中文映射：策略结果表格中的字段名进行了中文映射，包括日期、代码、名称、得分等
+- 界面元素中文化：导航栏、按钮、提示信息等全部使用中文
+- 卖出信号模板：红色警告样式显示今日掉榜ETF，绿色提示显示无卖出信号
 
 ```mermaid
 flowchart TD
@@ -304,18 +326,24 @@ E --> F{"状态完成?"}
 F --> |否| E
 F --> |是| G["重新加载结果片段"]
 G --> H["静态HTML表格展示结果"]
-C --> |否| I["显示错误提示"]
-I --> J["隐藏执行指示器"]
+H --> I["自动检测卖出信号"]
+I --> J["渲染卖出信号片段"]
+J --> K["显示历史汇总表格"]
+K --> L["完成所有HTMX片段加载"]
+C --> |否| M["显示错误提示"]
+M --> N["隐藏执行指示器"]
 ```
 
 **图示来源**
 - [src/quant_etf/dashboard/templates/strategy/index.html:18-37](file://src/quant_etf/dashboard/templates/strategy/index.html#L18-L37)
 - [src/quant_etf/dashboard/templates/strategy/_content.html:18-34](file://src/quant_etf/dashboard/templates/strategy/_content.html#L18-L34)
+- [src/quant_etf/dashboard/templates/strategy/_results.html:83-108](file://src/quant_etf/dashboard/templates/strategy/_results.html#L83-L108)
 
 **章节来源**
 - [src/quant_etf/dashboard/templates/strategy/index.html:1-71](file://src/quant_etf/dashboard/templates/strategy/index.html#L1-L71)
 - [src/quant_etf/dashboard/templates/strategy/_content.html:1-67](file://src/quant_etf/dashboard/templates/strategy/_content.html#L1-L67)
-- [src/quant_etf/dashboard/templates/strategy/_results.html:1-64](file://src/quant_etf/dashboard/templates/strategy/_results.html#L1-L64)
+- [src/quant_etf/dashboard/templates/strategy/_results.html:1-111](file://src/quant_etf/dashboard/templates/strategy/_results.html#L1-L111)
+- [src/quant_etf/dashboard/templates/strategy/_sell_signals.html:1-35](file://src/quant_etf/dashboard/templates/strategy/_sell_signals.html#L1-L35)
 
 ### 告警管理API
 - 规则管理：创建、删除告警规则。
@@ -396,6 +424,50 @@ note over S,B : 事件广播期间持续推送
 - [src/quant_etf/dashboard/app.py:39-50](file://src/quant_etf/dashboard/app.py#L39-L50)
 - [src/quant_etf/dashboard/services/sse_manager.py:1-45](file://src/quant_etf/dashboard/services/sse_manager.py#L1-L45)
 
+### ETF卖信号检测与历史汇总分析
+
+**新增** 系统新增ETF卖信号检测功能，基于严格模式的今日掉榜算法，自动识别策略结果中今日刚掉榜的ETF并提供可视化提示。
+
+- 卖出信号检测算法：
+  - 严格模式：只在最新结果日掉榜的标的才触发卖出信号
+  - 基于历史汇总数据，比较相邻两次策略运行结果
+  - 昨日在结果中但今日不在的ETF → 卖出信号
+- 历史汇总分析：
+  - 提供最近N天策略标的的历史表现统计
+  - 包括在榜天数、最后在榜日期、最晚下榜日期等指标
+  - 支持自动补算缺失的CSV文件
+- 模板集成：
+  - 红色警告样式显示今日掉榜ETF
+  - 绿色提示显示无卖出信号
+  - 历史汇总表格提供详细统计信息
+
+```mermaid
+flowchart TD
+A["策略执行完成"] --> B["获取历史汇总数据"]
+B --> C{"存在历史数据?"}
+C --> |是| D["找到最新结果日期"]
+D --> E["筛选掉榜标的"]
+E --> F{"严格模式检测"}
+F --> |今日掉榜| G["生成卖出信号"]
+F --> |非今日掉榜| H["跳过"]
+G --> I["渲染卖出信号模板"]
+H --> J["返回空信号"]
+C --> |否| J
+I --> K["显示红色警告提示"]
+J --> L["显示绿色无信号提示"]
+```
+
+**图示来源**
+- [src/quant_etf/dashboard/services/strategy_runner.py:178-204](file://src/quant_etf/dashboard/services/strategy_runner.py#L178-L204)
+- [src/quant_etf/dashboard/routes/strategy.py:57-82](file://src/quant_etf/dashboard/routes/strategy.py#L57-L82)
+- [src/quant_etf/dashboard/templates/strategy/_sell_signals.html:1-35](file://src/quant_etf/dashboard/templates/strategy/_sell_signals.html#L1-L35)
+
+**章节来源**
+- [src/quant_etf/dashboard/services/strategy_runner.py:178-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L178-L323)
+- [src/quant_etf/dashboard/routes/strategy.py:57-82](file://src/quant_etf/dashboard/routes/strategy.py#L57-L82)
+- [src/quant_etf/dashboard/templates/strategy/_sell_signals.html:1-35](file://src/quant_etf/dashboard/templates/strategy/_sell_signals.html#L1-L35)
+- [src/quant_etf/dashboard/templates/strategy/_history_summary.html:1-46](file://src/quant_etf/dashboard/templates/strategy/_history_summary.html#L1-L46)
+
 ## 依赖关系分析
 - 组件耦合：路由层依赖服务层；服务层依赖数据库与配置；SSE作为横切关注点被多个服务共享。
 - 外部依赖：DuckDB用于高性能读取；SQLite用于看板业务数据；Jinja2用于模板渲染。
@@ -416,12 +488,14 @@ SYNC --> DUCKDB["DuckDB"]
 APP["app.py"] --> SSE["sse_manager.py"]
 APP --> SCHED
 APP --> DB
+STRATEGY --> TPL["_sell_signals.html"]
+STRATEGY --> TPL["_history_summary.html"]
 ```
 
 **图示来源**
 - [src/quant_etf/dashboard/routes/pages.py:10-13](file://src/quant_etf/dashboard/routes/pages.py#L10-L13)
 - [src/quant_etf/dashboard/routes/portfolio.py:8-13](file://src/quant_etf/dashboard/routes/portfolio.py#L8-L13)
-- [src/quant_etf/dashboard/routes/strategy.py:8-13](file://src/quant_etf/dashboard/routes/strategy.py#L8-L13)
+- [src/quant_etf/dashboard/routes/strategy.py:8-15](file://src/quant_etf/dashboard/routes/strategy.py#L8-L15)
 - [src/quant_etf/dashboard/routes/alerts.py:7-11](file://src/quant_etf/dashboard/routes/alerts.py#L7-L11)
 - [src/quant_etf/dashboard/routes/market.py:9-12](file://src/quant_etf/dashboard/routes/market.py#L9-L12)
 - [src/quant_etf/dashboard/services/strategy_runner.py:15-18](file://src/quant_etf/dashboard/services/strategy_runner.py#L15-L18)
@@ -442,6 +516,7 @@ APP --> DB
 - 缓存与预计算：
   - ETF名称映射缓存在内存，减少文件I/O。
   - 上一次策略结果按日期目录缓存，快速对比。
+  - 历史汇总数据缓存5分钟，减少重复计算。
 - 网络传输：
   - SSE长连接减少HTTP开销；心跳保持连接活性。
   - HTMX片段更新降低页面刷新成本。
@@ -449,8 +524,13 @@ APP --> DB
   - 移除Chart.js依赖，减少JavaScript包体积和渲染开销。
   - 使用原生fetch API替代HTMX，降低前端框架依赖。
   - 静态HTML表格展示结果，提高渲染性能。
+  - 卖出信号检测采用严格模式，避免不必要的计算。
 
-**更新** 前端性能优化：移除Chart.js依赖显著减少了JavaScript包体积，使用原生fetch API替代HTMX降低了前端框架依赖，静态HTML表格展示结果提高了渲染性能。
+**更新** 新增性能优化措施：
+- 历史汇总数据缓存：5分钟TTL，减少重复计算开销
+- 严格模式卖信号检测：只处理最新结果日的数据，避免全量扫描
+- 自动补算机制：在获取历史汇总前自动检测并补算缺失的CSV文件
+- 缓存清理：策略执行完成后自动清理历史汇总缓存，确保数据新鲜度
 
 ## 故障排除指南
 - SSE连接问题：
@@ -471,8 +551,17 @@ APP --> DB
 - 前端交互问题：
   - 检查浏览器控制台是否有JavaScript错误；确认fetch API请求是否成功。
   - 参考：[src/quant_etf/dashboard/templates/strategy/index.html:18-37](file://src/quant_etf/dashboard/templates/strategy/index.html#L18-L37)、[src/quant_etf/dashboard/templates/strategy/_content.html:18-34](file://src/quant_etf/dashboard/templates/strategy/_content.html#L18-L34)
+- 模板中文化问题：
+  - 检查Jinja2模板中的中文字符编码；确认字段映射字典的完整性。
+  - 参考：[src/quant_etf/dashboard/templates/strategy/_results.html:44-62](file://src/quant_etf/dashboard/templates/strategy/_results.html#L44-L62)
+- 卖出信号检测失败：
+  - 检查历史汇总数据是否存在；确认策略名称参数正确。
+  - 参考：[src/quant_etf/dashboard/services/strategy_runner.py:178-204](file://src/quant_etf/dashboard/services/strategy_runner.py#L178-L204)
+- 历史汇总分析异常：
+  - 检查CSV文件是否存在；确认日期格式正确。
+  - 参考：[src/quant_etf/dashboard/services/strategy_runner.py:217-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L217-L323)
 
-**更新** 新增前端交互问题排查指南，包括JavaScript错误检查和fetch API请求验证。
+**更新** 新增卖出信号检测和历史汇总分析的故障排除指南，包括严格模式算法检查、历史数据完整性验证和CSV文件格式确认。
 
 **章节来源**
 - [src/quant_etf/dashboard/app.py:39-50](file://src/quant_etf/dashboard/app.py#L39-L50)
@@ -484,13 +573,16 @@ APP --> DB
 - [src/quant_etf/dashboard/routes/pages.py:20-22](file://src/quant_etf/dashboard/routes/pages.py#L20-L22)
 - [src/quant_etf/dashboard/templates/strategy/index.html:18-37](file://src/quant_etf/dashboard/templates/strategy/index.html#L18-L37)
 - [src/quant_etf/dashboard/templates/strategy/_content.html:18-34](file://src/quant_etf/dashboard/templates/strategy/_content.html#L18-L34)
+- [src/quant_etf/dashboard/templates/strategy/_results.html:44-62](file://src/quant_etf/dashboard/templates/strategy/_results.html#L44-L62)
+- [src/quant_etf/dashboard/services/strategy_runner.py:178-204](file://src/quant_etf/dashboard/services/strategy_runner.py#L178-L204)
+- [src/quant_etf/dashboard/services/strategy_runner.py:217-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L217-L323)
 
 ## 结论
 本Dashboard监控系统通过FastAPI + HTMX + SQLite/DuckDB + SSE实现了低耦合、高扩展的监控平台。路由层清晰分层，服务层职责明确，SSE提供实时事件推送，HTMX实现无刷新交互体验。配置集中化管理，便于部署与维护。
 
-**更新** 最新版本中，策略执行界面已优化为更简洁的静态HTML表格展示，移除了Chart.js依赖，使用原生fetch API替代HTMX进行轮询控制，提升了系统性能和用户体验。错误处理和用户反馈机制得到显著改善，为用户提供更好的操作体验。
+**更新** 最新版本中，策略执行界面已优化为更简洁的静态HTML表格展示，移除了Chart.js依赖，使用原生fetch API替代HTMX进行轮询控制，提升了系统性能和用户体验。错误处理和用户反馈机制得到显著改善，为用户提供更好的操作体验。Dashboard模板全面中文化，支持中文策略名称显示和中文界面元素，显著提升了中文用户的使用体验。新增的ETF卖信号检测功能提供了严格模式的今日掉榜算法，能够自动识别策略结果中今日刚掉榜的ETF并提供可视化提示，增强了系统的实用性和决策支持能力。
 
-后续可进一步完善告警规则与可视化展示，增强策略结果的历史对比分析功能。
+后续可进一步完善告警规则与可视化展示，增强策略结果的历史对比分析功能，考虑添加更多技术指标和风险评估功能。
 
 ## 附录
 
@@ -517,6 +609,8 @@ APP --> DB
   - POST /api/strategy/run → 执行策略（返回run_id）
   - GET /api/strategy/status/{run_id} → 查询执行进度
   - GET /api/strategy/results/{run_id} → 渲染结果片段（静态HTML表格）
+  - GET /api/strategy/sell-signals → 渲染卖出信号片段（今日掉榜ETF）
+  - GET /api/strategy/history-summary → 渲染历史汇总片段（最近N天表现）
 - 告警API
   - GET /api/alerts/rules → 列出告警规则
   - POST /api/alerts/rules → 创建告警规则
@@ -533,10 +627,12 @@ APP --> DB
   - DELETE /api/market/schedules/{schedule_id} → 删除调度
   - POST /api/market/schedules/{schedule_id}/toggle → 启停调度
 
+**更新** 新增ETF卖信号和历史汇总API端点，提供严格模式的今日掉榜检测和最近N天策略标的统计分析功能。
+
 **章节来源**
 - [src/quant_etf/dashboard/routes/pages.py:40-75](file://src/quant_etf/dashboard/routes/pages.py#L40-L75)
 - [src/quant_etf/dashboard/routes/portfolio.py:31-175](file://src/quant_etf/dashboard/routes/portfolio.py#L31-L175)
-- [src/quant_etf/dashboard/routes/strategy.py:18-53](file://src/quant_etf/dashboard/routes/strategy.py#L18-L53)
+- [src/quant_etf/dashboard/routes/strategy.py:18-82](file://src/quant_etf/dashboard/routes/strategy.py#L18-L82)
 - [src/quant_etf/dashboard/routes/alerts.py:16-105](file://src/quant_etf/dashboard/routes/alerts.py#L16-L105)
 - [src/quant_etf/dashboard/routes/market.py:18-116](file://src/quant_etf/dashboard/routes/market.py#L18-L116)
 
@@ -546,10 +642,15 @@ APP --> DB
   - SQLite查询：基于索引的简单查询为O(log n)；分页查询O(k)。
   - DuckDB读取：按code过滤与排序，依赖索引与列式存储，读取效率高。
   - SSE广播：队列操作O(1)，支持多客户端并发。
+  - 历史汇总计算：O(N*M)，其中N为标的数量，M为天数范围。
+  - 卖出信号检测：O(N)，严格模式下只处理最新结果日的数据。
+
+**更新** 新增历史汇总计算和卖出信号检测的复杂度分析，反映新增功能对系统性能的影响。
 
 **章节来源**
 - [src/quant_etf/dashboard/models.py:1-54](file://src/quant_etf/dashboard/models.py#L1-L54)
 - [src/quant_etf/dashboard/db.py:93-133](file://src/quant_etf/dashboard/db.py#L93-L133)
+- [src/quant_etf/dashboard/services/strategy_runner.py:217-323](file://src/quant_etf/dashboard/services/strategy_runner.py#L217-L323)
 
 ### 部署配置要点
 - 环境变量：

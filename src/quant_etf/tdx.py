@@ -8,6 +8,9 @@ from pytdx.config import hosts
 
 from quant_etf.conf import TDX_VIPDOC_DIR
 
+import psutil
+import subprocess as _subprocess
+
 CUSTOM_HQ_HOSTS = [
     ("扩展行情(测试文件)", "112.74.214.43", 7727),
     ("上海电信主站Z1", "180.153.18.170", 7709),
@@ -16,6 +19,48 @@ CUSTOM_HQ_HOSTS = [
     ("上证云北京联通一", "123.125.108.14", 7709),
     ("广发", "119.29.19.242", 7709),
 ]
+
+
+def get_local_tdx_server() -> tuple[str, int] | None:
+    """
+    通过本地运行的通达信进程自动发现行情服务器地址
+    :return: (ip, port) 元组，如果未找到则返回 None
+    """
+    # 查找通达信主进程 PID
+    tdx_pid = None
+    for proc in psutil.process_iter(["pid", "name"]):
+        try:
+            if proc.info["name"] and "tdxw.exe" == proc.info["name"].lower():
+                tdx_pid = proc.pid
+                break
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    if not tdx_pid:
+        logger.debug("TdxW.exe process not found")
+        return None
+
+    # 通过 netstat 查找连接到 7709 端口的连接
+    try:
+        result = _subprocess.run(
+            f'netstat -ano | findstr "{tdx_pid}" | findstr "7709"',
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.stdout.strip():
+            for line in result.stdout.strip().split("\n"):
+                parts = line.split()
+                if len(parts) >= 3 and parts[3] == "ESTABLISHED":
+                    remote = parts[2]
+                    ip, port = remote.rsplit(":", 1)
+                    logger.info(f"Discovered TDX server from local process: {ip}:{port}")
+                    return ip, int(port)
+    except Exception as e:
+        logger.debug(f"Failed to discover TDX server from local process: {e}")
+
+    return None
 
 
 # 全局工作服务器缓存
@@ -110,8 +155,22 @@ def code_to_market(code: str) -> int:
 def _get_default_hq_server() -> tuple[str, int]:
     """
     获取默认行情服务器地址
+    优先级: 本地通达信进程发现的服务器 > 缓存服务器 > CUSTOM_HQ_HOSTS[0] > 默认服务器
     :return: (ip, port) 元组
     """
+    # Priority 1: 优先使用本地通达信进程发现的服务器
+    local_server = get_local_tdx_server()
+    if local_server:
+        logger.info(f"Using local TDX server as default: {local_server[0]}:{local_server[1]}")
+        return local_server
+
+    # Priority 2: 使用缓存的服务器
+    cached = _get_cached_server()
+    if cached:
+        logger.info(f"Using cached server as default: {cached[0]}:{cached[1]}")
+        return cached
+
+    # Priority 3: 使用配置的第一个服务器
     if CUSTOM_HQ_HOSTS:
         first_host = CUSTOM_HQ_HOSTS[0]
         if isinstance(first_host, (tuple, list)):
@@ -122,6 +181,8 @@ def _get_default_hq_server() -> tuple[str, int]:
                 ip = str(first_host[0])
                 port = int(first_host[1])
             return ip, port
+
+    # Priority 4: 使用 pytdx 默认服务器
     hq_hosts = hosts.hq_hosts
     if hq_hosts:
         first_host = hq_hosts[0]
@@ -158,32 +219,64 @@ def get_realtime_quote(
         logger.warning("No codes provided for realtime quote")
         return pd.DataFrame()
 
-    if server is None:
-        server, port = _get_default_hq_server()
-
     market_codes = [(code_to_market(code), code) for code in codes]
 
+    # 如果未指定服务器，优先使用本地发现的服务器，失败则回退
+    if server is None:
+        # 尝试本地服务器
+        local_server = get_local_tdx_server()
+        if local_server:
+            server, port = local_server
+            try:
+                result = _try_realtime_quote(market_codes, server, port, auto_retry, heartbeat)
+                if not result.empty:
+                    _set_cached_server(server, port)
+                    return result
+                logger.warning(f"Local TDX server {server}:{port} returned empty quotes, falling back")
+            except Exception as e:
+                logger.warning(f"Local TDX server {server}:{port} failed: {e}, falling back to configured list")
+
+        # 回退到缓存或配置的服务器
+        server, port = _get_default_hq_server()
+
     try:
-        api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
-        if not api.connect(server, port):
-            logger.warning(f"Failed to connect to TDX HQ server {server}:{port}")
-            return pd.DataFrame()
-
-        try:
-            quotes = api.get_security_quotes(market_codes)
-            if not quotes:
-                logger.warning("No quotes returned from server")
-                return pd.DataFrame()
-
-            df = api.to_df(quotes)
-            return df
-
-        finally:
-            api.disconnect()
-
+        result = _try_realtime_quote(market_codes, server, port, auto_retry, heartbeat)
+        if not result.empty:
+            _set_cached_server(server, port)
+        return result
     except Exception as e:
         logger.error(f"Failed to get realtime quote: {e}")
         return pd.DataFrame()
+
+
+def _try_realtime_quote(
+    market_codes: list[tuple[int, str]],
+    server: str,
+    port: int,
+    auto_retry: bool,
+    heartbeat: bool,
+) -> pd.DataFrame:
+    """
+    尝试连接指定服务器获取实时行情
+    :return: DataFrame 包含实时行情数据
+    """
+    api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+    if not api.connect(server, port):
+        logger.debug(f"Failed to connect to TDX HQ server {server}:{port}")
+        return pd.DataFrame()
+
+    try:
+        quotes = api.get_security_quotes(market_codes)
+        if not quotes:
+            logger.debug(f"No quotes returned from server {server}:{port}")
+            return pd.DataFrame()
+
+        df = api.to_df(quotes)
+        logger.info(f"Successfully fetched realtime quotes for {len(market_codes)} codes from {server}:{port}")
+        return df
+
+    finally:
+        api.disconnect()
 
 
 def get_realtime_quote_single(

@@ -31,8 +31,8 @@ def build_intraday_bar(code: str, df_history: pd.DataFrame) -> pd.DataFrame | No
     today = datetime.now().date()
     today_dt = datetime.combine(today, datetime.min.time())
 
-    # 提取实时行情字段
-    close = quote.get("close", 0)
+    # 提取实时行情字段 (pytdx 使用 price 而非 close)
+    close = quote.get("price") or quote.get("close", 0)
     if not close or close <= 0:
         logger.warning(f"Invalid close price from realtime quote for {code}: {close}")
         return None
@@ -306,15 +306,96 @@ class ETFDataSource:
     def _append_intraday_if_needed(self, code: str, df: pd.DataFrame, intraday: bool, adjust_qfq: bool) -> pd.DataFrame:
         """
         如果处于 intraday 模式且当前是交易时段，构造今日临时日K线并拼接
+        注意: 实时行情返回的是未复权价格，所以 intraday bar 需要基于未复权数据构建
         """
         if not intraday or not is_intraday():
             return df
-        intraday_bar = build_intraday_bar(code, df)
+
+        # 构造 intraday bar
+        if adjust_qfq:
+            # 重新加载未复权数据用于 intraday bar 计算
+            df_unadjusted = self._load_unadjusted_data(code)
+            if df_unadjusted is not None and not df_unadjusted.empty:
+                intraday_bar = build_intraday_bar(code, df_unadjusted)
+            else:
+                logger.warning(f"Failed to load unadjusted data for {code}, skipping intraday bar")
+                return df
+        else:
+            intraday_bar = build_intraday_bar(code, df)
+
         if intraday_bar is not None:
+            # 对 intraday bar 应用相同的前复权因子
+            if adjust_qfq and not df.empty:
+                last_adjusted_close = df.iloc[-1]["close"]
+                # 计算复权因子 (复权后价格 / 未复权价格)
+                if intraday_bar.iloc[0]["close"] > 0:
+                    # 将 intraday bar 的价格调整到与历史数据同一量级
+                    adjustment_ratio = last_adjusted_close / intraday_bar.iloc[0]["close"]
+                    for col in ["open", "high", "low", "close"]:
+                        intraday_bar[col] *= adjustment_ratio
+                    # 重新计算 pct_chg
+                    if len(df) > 0:
+                        prev_close = df.iloc[-1]["close"]
+                        intraday_bar["pct_chg"] = (intraday_bar.iloc[0]["close"] - prev_close) / prev_close * 100
+
+            # 修复：在拼接前，先删除 df 中已存在的今日数据（避免重复追加）
+            today = datetime.now().date()
+            today_mask = df.index.date == today
+            if today_mask.any():
+                df = df[~today_mask]
+                logger.info(f"Removed existing intraday bar for {code} before appending new one")
+
             df = pd.concat([df, intraday_bar])
             df.sort_index(inplace=True)
             logger.info(f"Appended intraday bar for {code}, data now spans to {df.index[-1].date()}")
+
+            # 将包含 intraday bar 的数据保存到 CSV 缓存，确保后续读取能获取到最新数据
+            # adjust_qfq=False 表示是股票数据
+            self._save_with_intraday_to_cache(code, df, is_stock=not adjust_qfq)
+
         return df
+
+    def _save_with_intraday_to_cache(self, code: str, df: pd.DataFrame, is_stock: bool = False) -> None:
+        """
+        将包含 intraday bar 的数据保存到 CSV 缓存
+        :param code: ETF代码或股票代码
+        :param df: 包含 intraday bar 的 DataFrame
+        :param is_stock: 是否为股票数据
+        """
+        try:
+            if is_stock:
+                cache_path = self.get_stock_cache_path(code)
+            else:
+                cache_path = self.get_cache_path(code)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(cache_path)
+            logger.info(f"Saved intraday bar to cache: {cache_path} (date: {df.index[-1].date()})")
+        except Exception as e:
+            logger.warning(f"Failed to save intraday bar to cache for {code}: {e}")
+
+    def _load_unadjusted_data(self, code: str) -> pd.DataFrame | None:
+        """
+        加载未复权的原始数据(用于 intraday bar 计算)
+        """
+        # 尝试从本地 TDX 文件加载
+        tdx_path = get_tdx_path(code)
+        if tdx_path and tdx_path.exists():
+            try:
+                return parse_tdx_day_file(tdx_path)
+            except Exception as e:
+                logger.debug(f"Failed to load unadjusted TDX data for {code}: {e}")
+
+        # 尝试从缓存加载
+        cache_path = self.get_cache_path(code)
+        if cache_path.exists():
+            try:
+                df = pd.read_csv(cache_path, index_col="date", parse_dates=True)
+                if not df.empty:
+                    return df
+            except Exception as e:
+                logger.debug(f"Failed to load unadjusted cache data for {code}: {e}")
+
+        return None
 
     def _apply_qfq(self, code: str, df: pd.DataFrame) -> pd.DataFrame:
         """

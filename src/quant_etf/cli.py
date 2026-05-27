@@ -15,6 +15,7 @@ Commands:
     run               运行单个选股任务
     list-tasks        列出所有可用选股任务
     check             Dashboard 健康检查
+    backfill-missing  检查并补算最近N个交易日内缺失的策略结果CSV
 """
 import argparse
 import sys
@@ -498,6 +499,12 @@ def build_parser():
     p.add_argument("--dry-run", action="store_true", help="只打印差异，不写文件")
     p.add_argument("--target", type=str, default=None, help="自定义目标文件路径")
 
+    p = sub.add_parser("backfill-missing", help="检查并补算最近N个交易日内缺失的策略结果CSV")
+    p.add_argument("--days", "-d", type=int, default=30, help="检查最近N个交易日 (默认: 30)")
+    p.add_argument("--strategy", "-s", action="append", choices=["etf", "short", "mid"],
+                   help="指定策略名，可多次使用 (默认: etf)")
+    p.add_argument("--dry-run", action="store_true", help="仅扫描不补算，输出缺失报告")
+
     return parser
 
 
@@ -509,6 +516,54 @@ def cmd_backfill_stock_names(args):
     result = ds.backfill_stock_names()
     logger.info(f"补齐完成: {result}")
     print(f"Backfill completed: {result}")
+
+
+def cmd_backfill_missing(args):
+    from loguru import logger
+    from quant_etf.backfill_missing import check_and_backfill
+
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    logger.add(log_dir / "backfill_missing_{time:YYYY-MM-DD}.log", rotation="10 MB", encoding="utf-8")
+
+    strategies = args.strategy or ["etf"]
+    result = check_and_backfill(
+        trading_days=args.days,
+        strategies=strategies,
+        dry_run=args.dry_run
+    )
+
+    if "error" in result:
+        print(f"Error: {result['error']}")
+        return
+
+    # 打印缺失报告
+    report = result["missing_report"]
+    summary = report["summary"]
+    print(f"\n=== CSV Missing Check ===")
+    print(f"Trading dates: {summary['total_trading_days']}")
+    print(f"Missing: {summary['total_missing_csvs']} CSVs across {summary['days_with_missing']} days")
+
+    if report["missing"]:
+        for date_str, missing_strategies in sorted(report["missing"].items()):
+            print(f"  {date_str}: {', '.join(missing_strategies)}")
+    else:
+        print("  All CSVs present. No missing files!")
+
+    # 打印补算结果
+    if result.get("dry_run"):
+        print("\n[dry-run mode] No backfill performed.")
+    elif result.get("backfill_result"):
+        br = result["backfill_result"]
+        bs = br["summary"]
+        print(f"\n=== Backfill Result ===")
+        print(f"Total: {bs['total']}, Succeeded: {bs['succeeded']}, "
+              f"Failed: {bs['failed']}, Skipped: {bs['skipped']}")
+
+        if br["failed"]:
+            print("\nFailed items:")
+            for date_str, strategy, error in br["failed"]:
+                print(f"  {date_str} {strategy}: {error}")
 
 
 def cmd_refresh_stock_names(args):
@@ -548,6 +603,7 @@ COMMANDS = {
     "check": cmd_check,
     "backfill-stock-names": cmd_backfill_stock_names,
     "refresh-stock-names": cmd_refresh_stock_names,
+    "backfill-missing": cmd_backfill_missing,
 }
 
 

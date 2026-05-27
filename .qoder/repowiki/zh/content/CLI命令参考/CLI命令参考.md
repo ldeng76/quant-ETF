@@ -19,6 +19,7 @@
 - [plan_daily_run.md](file://plan_daily_run.md)
 - [tests/test_name_refresh.py](file://tests/test_name_refresh.py)
 - [logs/minute_backfill_2026-05-25.log](file://logs/minute_backfill_2026-05-25.log)
+- [src/quant_etf/dashboard/services/strategy_runner.py](file://src/quant_etf/dashboard/services/strategy_runner.py)
 </cite>
 
 ## 目录
@@ -36,7 +37,7 @@
 ## 简介
 本文件为 Quant-ETF 项目的统一命令行接口"quant-etf"的权威参考文档。围绕每日运行、单任务运行、任务列表、仪表盘、分钟级数据采集、历史补跑、分钟级数据补采等核心命令，提供完整的语法说明、参数选项、默认值、使用示例与最佳实践。文档还解释命令间的依赖关系、错误处理与调试技巧，并给出批量操作与自动化脚本的建议。
 
-**更新** 新增 minute-backfill 命令，提供历史分钟级K线数据补采功能，替代了原有的手动脚本方法。新增 refresh-stock-names 命令，支持强制重建股票名称映射、干运行模式、自定义目标文件路径等功能。增强了 backfill-stock-names 功能，改进了冲突解决机制和错误处理。**重大更新** Ctrl+C 终止机制现已大幅改进，wait_until_trading_start nc函数支持响应式中断，用户可在约1秒内响应 Ctrl+C，而不是之前的阻塞等待。
+**更新** 新增 minute-backfill 命令，提供历史分钟级K线数据补采功能，替代了原有的手动脚本方法。新增 refresh-stock-names 命令，支持强制重建股票名称映射、干运行模式、自定义目标文件路径等功能。增强了 backfill-stock-names 功能，改进了冲突解决机制和错误处理。**重大更新** Ctrl+C 终止机制现已大幅改进，wait_until_trading_start 函数支持响应式中断，用户可在约1秒内响应 Ctrl+C，而不是之前的阻塞等待。**新增** 日内模式支持，CLI接口新增--intraday参数，支持在交易时段内使用盘中实时行情构造今日临时日K线。
 
 ## 项目结构
 - 统一 CLI 入口位于 src/quant_etf/cli.py，负责参数解析与命令分发。
@@ -45,6 +46,7 @@
 - 数据采集、任务执行、结果对比、交易日历等功能分布在相应模块中。
 - 股票名称管理功能位于 src/quant_etf/data_source.py，提供全量重建和补齐功能。
 - 分钟级数据补采功能位于 src/quant_etf/minute_collector.py，提供历史数据补采能力。
+- 日内模式支持位于 src/quant_etf/trading_day.py，提供交易时段判断功能。
 
 ```mermaid
 graph TB
@@ -71,6 +73,9 @@ RestartDash --> DashApp
 CheckDash --> DashApp
 BackfillNames --> DataSource["数据源与名称映射<br/>src/quant_etf/data_source.py"]
 RefreshNames --> DataSource
+Tasks --> IntradayMode["日内模式支持<br/>src/quant_etf/trading_day.py"]
+RunCmd --> IntradayMode
+DailyRun --> IntradayMode
 ```
 
 **图示来源**
@@ -96,6 +101,7 @@ RefreshNames --> DataSource
 - Dashboard：FastAPI + SSE 实时推送，提供策略、持仓、监控、告警等页面。
 - 数据源：ETFDataSource 负责名称映射与缓存、数据加载策略（本地/TDX/缓存/在线）。
 - 股票名称管理：提供全量重建和补齐两种模式，支持干运行和自定义目标路径。
+- 日内模式支持：基于 trading_day.is_intraday() 判断交易时段，支持盘中实时行情构造。
 
 **章节来源**
 - [src/quant_etf/tasks.py:30-160](file://src/quant_etf/tasks.py#L30-L160)
@@ -106,7 +112,7 @@ RefreshNames --> DataSource
 - [src/quant_etf/data_source.py:15-200](file://src/quant_etf/data_source.py#L15-L200)
 
 ## 架构总览
-统一 CLI 作为入口，将命令分发到对应模块；部分命令之间存在数据与流程依赖（如 daily-run 依赖 tasks 与 comparison，backfill 依赖 trading_day 与 tasks）；Dashboard 通过 SSE 实时推送策略结果与告警；股票名称管理功能独立于主要流程，提供数据维护能力；分钟数据补采功能与分钟数据采集功能共享相同的数据库接口。
+统一 CLI 作为入口，将命令分发到对应模块；部分命令之间存在数据与流程依赖（如 daily-run 依赖 tasks 与 comparison，backfill 依赖 trading_day 与 tasks）；Dashboard 通过 SSE 实时推送策略结果与告警；股票名称管理功能独立于主要流程，提供数据维护能力；分钟数据补采功能与分钟数据采集功能共享相同的数据库接口；日内模式支持贯穿整个任务执行流程，自动判断交易时段并启用相应的数据模式。
 
 ```mermaid
 sequenceDiagram
@@ -117,23 +123,22 @@ participant Compare as "结果对比<br/>comparison.py"
 participant DB as "DuckDB/CSV<br/>minute_collector.py"
 participant Dash as "Dashboard<br/>dashboard/app.py"
 participant Names as "股票名称管理<br/>data_source.py"
+participant Intraday as "日内模式<br/>trading_day.py"
 User->>CLI : 执行 quant-etf daily-run
-CLI->>Tasks : 获取任务实例并运行(etf/short/mid)
+CLI->>Intraday : 检查交易时段
+Intraday-->>CLI : 返回日内模式状态
+CLI->>Tasks : 获取任务实例并运行(etf/short/mid)，传入intraday参数
+Tasks->>Intraday : 初始化时检查日内模式
+Intraday-->>Tasks : 返回数据模式(INTRADAY/standard)
 Tasks-->>CLI : 任务完成并保存CSV
 CLI->>Compare : 对比当日与历史结果
 Compare-->>CLI : 生成对比报告
 CLI-->>User : 输出报告与日志
-User->>CLI : 执行 quant-etf minute-collect
-CLI->>DB : 循环采集分钟数据并入库
-DB-->>Dash : 数据可用于实时分析
-Dash-->>User : 通过页面与SSE推送展示
-User->>CLI : 执行 quant-etf minute-backfill
-CLI->>DB : 补采历史分钟数据并入库
-DB-->>Dash : 数据可用于回测分析
-User->>CLI : 执行 quant-etf refresh-stock-names
-CLI->>Names : 强制重建股票名称映射
-Names-->>CLI : 返回更新统计
-CLI-->>User : 输出更新详情
+User->>CLI : 执行 quant-etf run --intraday
+CLI->>Tasks : 传入intraday=True参数
+Tasks->>Intraday : 检查并应用日内模式
+Intraday-->>Tasks : 返回构造的临时日K线
+Tasks-->>CLI : 执行完成
 ```
 
 **图示来源**
@@ -143,11 +148,12 @@ CLI-->>User : 输出更新详情
 - [src/quant_etf/minute_collector.py:458-488](file://src/quant_etf/minute_collector.py#L458-L488)
 - [src/quant_etf/dashboard/app.py:39-50](file://src/quant_etf/dashboard/app.py#L39-L50)
 - [src/quant_etf/data_source.py:346-463](file://src/quant_etf/data_source.py#L346-L463)
+- [src/quant_etf/trading_day.py:91-101](file://src/quant_etf/trading_day.py#L91-L101)
 
 ## 详细组件分析
 
 ### daily-run —— 运行每日选股任务
-- 功能概述：同时运行 ETF、短线股票、中期反弹三种策略，生成汇总对比报告。
+- 功能概述：同时运行 ETF、短线股票、中期反弹三种策略，生成汇总对比报告。**更新** 现在支持日内模式，仅在交易时段且针对当天日期时自动启用。
 - 语法与参数
   - 语法：quant-etf daily-run [--days N] [--date YYYY-MM-DD]
   - 参数
@@ -155,7 +161,8 @@ CLI-->>User : 输出更新详情
     - --date：指定某一天（与 --days 互斥，若指定则忽略 --days）
 - 行为细节
   - 若未指定日期，按自然日倒序运行最近 N 天
-  - 依次运行 etf、short、mid 任务
+  - **更新** 每个任务执行前检查交易时段：仅对今天的日期且处于交易时段时启用 intraday 模式
+  - 依次运行 etf、short、mid 任务，传入相应的 intraday 参数
   - 每个任务完成后，调用 ResultComparator 对比当日与历史结果，输出报告
   - 报告保存到 data/results/{date}/daily_summary.txt
 - 使用示例
@@ -169,27 +176,32 @@ CLI-->>User : 输出更新详情
   - 依赖 TaskRegistry 与具体任务类
   - 依赖 ResultComparator 生成对比报告
   - 依赖日志系统输出执行过程
+  - **更新** 依赖 trading_day.is_intraday() 判断交易时段
 
 **章节来源**
 - [src/quant_etf/cli.py:24-70](file://src/quant_etf/cli.py#L24-L70)
 - [src/quant_etf/tasks.py:411-450](file://src/quant_etf/tasks.py#L411-L450)
 - [src/quant_etf/comparison.py:37-129](file://src/quant_etf/comparison.py#L37-L129)
 - [README.md:95-109](file://README.md#L95-L109)
+- [src/quant_etf/trading_day.py:91-101](file://src/quant_etf/trading_day.py#L91-L101)
 
 ### run —— 运行单个选股任务
-- 功能概述：运行指定的单个任务（etf/short/mid），可指定日期。
+- 功能概述：运行指定的单个任务（etf/short/mid），可指定日期和日内模式。
 - 语法与参数
-  - 语法：quant-etf run [task] [--date YYYY-MM-DD]
+  - 语法：quant-etf run [task] [--date YYYY-MM-DD] [--intraday]
   - 参数
     - task：任务名称，可选值 etf、short、mid，默认 etf
     - --date：指定日期（格式 YYYY-MM-DD）
+    - --intraday：使用盘中实时行情构造今日临时日K线（仅在交易时段内有效）
 - 行为细节
   - 校验任务名称有效性
-  - 通过 TaskRegistry 获取任务实例并执行
+  - 通过 TaskRegistry 获取任务实例并执行，传入 intraday 参数
   - 成功输出完成日志，异常时记录异常并退出码 1
+  - **更新** 当 --intraday 参数启用时，任务会在交易时段内使用实时行情构造临时日K线
 - 使用示例
   - 运行 ETF 任务：quant-etf run etf
   - 指定日期运行：quant-etf run short --date 2026-05-20
+  - **新增** 启用日内模式：quant-etf run mid --intraday
 - 错误处理
   - 未知任务名：记录错误并退出
   - 任务加载失败：记录错误并退出
@@ -227,6 +239,7 @@ CLI-->>User : 输出更新详情
   - 通过环境变量 DASHBOARD_PORT、DASHBOARD_HOST、DASHBOARD_RELOAD 控制行为
   - 启动时初始化数据库并启动调度器
   - 提供 SSE /events 实时事件流
+  - **更新** Dashboard 内部也会自动检测交易时段并启用日内模式
 - 使用示例
   - 默认启动：quant-etf dashboard
   - 自定义端口：quant-etf dashboard --port 8080
@@ -235,11 +248,13 @@ CLI-->>User : 输出更新详情
 - 依赖关系
   - 依赖 dashboard/app.py 的 main 函数
   - 依赖配置项 DASHBOARD_HOST、DASHBOARD_PORT
+  - **更新** 依赖 trading_day.is_intraday() 进行日内模式判断
 
 **章节来源**
 - [src/quant_etf/cli.py:72-83](file://src/quant_etf/cli.py#L72-L83)
 - [src/quant_etf/dashboard/app.py:74-87](file://src/quant_etf/dashboard/app.py#L74-L87)
 - [README.md:130-146](file://README.md#L130-L146)
+- [src/quant_etf/dashboard/services/strategy_runner.py:42-46](file://src/quant_etf/dashboard/services/strategy_runner.py#L42-L46)
 
 ### minute-collect —— 分钟级 K 线数据采集器
 - 功能概述：持续运行，在交易时段内每分钟采集 ALL_POOL 标的的 1 分钟 K 线数据，存储到 DuckDB。
@@ -433,6 +448,7 @@ CLI-->>User : 输出更新详情
 - 旧版脚本 run_daily.py、run_dashboard.py 等已迁移至统一 CLI，内部重定向到对应命令。
 - 股票名称管理功能独立于主要选股流程，提供数据维护能力。
 - 分钟数据补采功能与分钟数据采集功能共享相同的数据库接口，但工作方式不同。
+- **更新** 日内模式支持贯穿整个任务执行流程，自动判断交易时段并启用相应的数据模式。
 
 ```mermaid
 graph TB
@@ -470,6 +486,9 @@ Minute --> Conf
 MinBackfill --> Minute
 DS --> NameRefresh
 DS --> NameBackfill
+Tasks --> Trading
+RunCmd --> Trading
+DailyRun --> Trading
 ```
 
 **图示来源**
@@ -487,6 +506,7 @@ DS --> NameBackfill
   - dashboard 依赖 dashboard/app.py 的 main 函数与配置
   - refresh-stock-names 依赖 ETFDataSource 的 refresh_stock_names 方法
   - backfill-stock-names 依赖 ETFDataSource 的 backfill_stock_names 方法
+  - **更新** daily-run、run 依赖 trading_day.is_intraday() 进行日内模式判断
 - 外部依赖
   - pytdx：在线数据获取
   - duckdb：分钟数据存储
@@ -504,12 +524,15 @@ CLI --> Dash["dashboard/app.py"]
 CLI --> DS["data_source.py"]
 CLI --> Conf["conf.py"]
 CLI --> MinBackfill["minute-backfill"]
+Tasks --> DS
+Compare --> DS
 Minute --> DuckDB["DuckDB"]
 Dash --> FastAPI["FastAPI/Uvicorn"]
 DS --> PyTDX["pytdx"]
 DS --> SimpleAPI["simple_stock_api"]
 MinBackfill --> Minute
 MinBackfill --> DuckDB
+Trading --> Intraday["is_intraday()"]
 ```
 
 **图示来源**
@@ -536,9 +559,11 @@ MinBackfill --> DuckDB
 - 任务执行
   - 任务按需加载数据，支持按 target_date 过滤数据以减少计算量
   - CSV 导出采用批量写入，降低 I/O 压力
+  - **更新** 日内模式仅在交易时段启用，避免非交易时段的无效计算
 - Dashboard
   - SSE 心跳保活，避免长时间空闲连接断开
   - 调度器在启动时初始化，避免重复初始化开销
+  - **更新** Dashboard 内部自动检测交易时段，动态启用日内模式
 - 股票名称管理
   - refresh-stock-names 使用批处理查询，delay=0.3 秒避免请求过快
   - 支持干运行模式，先生成报告再决定是否写入
@@ -587,13 +612,13 @@ MinBackfill --> DuckDB
   - minute-collect 命令现在支持快速响应 Ctrl+C，约1秒内生效
   - wait_until_trading_start 函数采用分段睡眠机制，每秒检查一次中断请求
   - should_stop 回调参数允许外部代码优雅地请求停止
-- 性能优化建议
-  - refresh-stock-names 适合定期全量校准，backfill-stock-names 适合日常增量维护
-  - 两种模式可以结合使用：先 refresh 全量校准，再 backfill 补齐缺失
-  - minute-backfill 建议按标的分批执行，避免一次性补采过多数据
-  - 使用 --codes 参数精确指定需要补采的标的，提高效率
+- **新增** 日内模式相关问题
+  - --intraday 参数仅在交易时段内有效，非交易时段会被忽略
+  - 如果任务执行时不在交易时段，即使指定 --intraday 也不会启用日内模式
+  - 检查 trading_day.is_intraday() 的返回值确认当前是否处于交易时段
+  - 日内模式下会自动构造临时日K线，注意与历史数据的差异
 
-**更新** 新增 Ctrl+C 终止响应速度相关的故障排除指南和 minute-backfill 相关的故障排除指南
+**更新** 新增 Ctrl+C 终止响应速度相关的故障排除指南和 minute-backfill 相关的故障排除指南，以及新增的日内模式故障排除指南
 
 **章节来源**
 - [pyproject.toml:28-30](file://pyproject.toml#L28-L30)
@@ -611,13 +636,15 @@ quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组�
 
 **重大更新** Ctrl+C 终止机制现已大幅改进，wait_until_trading_start 函数支持响应式中断，用户可在约1秒内响应 Ctrl+C，而不是之前的阻塞等待。CLI 中的 minute-collect 和 minute-backfill 命令现在使用 should_stop 回调参数实现快速响应，显著提升了用户体验和系统响应性。
 
+**新增** 日内模式支持为 Quant-ETF 带来了更灵活的数据处理能力。通过 --intraday 参数，用户可以在交易时段内使用盘中实时行情构造今日临时日K线，使策略能够在接近实时的状态下运行。这一功能与现有的历史数据处理能力形成完美互补，既保证了离线回测的准确性，又满足了实时监控的需求。日内模式的自动检测机制确保了在非交易时段不会产生无效的实时数据请求，提高了系统的稳定性和效率。
+
 ## 附录
 
 ### 命令速查表
-- daily-run：运行每日选股任务（etf/short/mid），生成对比报告
-- run：运行单个选股任务（etf/short/mid），可指定日期
+- daily-run：运行每日选股任务（etf/short/mid），生成对比报告（**更新** 支持日内模式）
+- run：运行单个选股任务（etf/short/mid），可指定日期和日内模式
 - list-tasks：列出所有可用任务
-- dashboard：启动 Dashboard 监控系统
+- dashboard：启动 Dashboard 监控系统（**更新** 支持自动日内模式）
 - minute-collect：启动分钟级 K 线数据采集器（支持快速响应 Ctrl+C）
 - minute-backfill：补采历史分钟级 K 线数据（支持日期范围和标的过滤）
 - backfill：批量补跑历史日期任务
@@ -626,7 +653,7 @@ quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组�
 - backfill-stock-names：补齐股票代码名称（仅补齐缺失，不覆盖现有）
 - refresh-stock-names：强制重建股票名称映射（覆盖错误条目，统一市场字段）
 
-**更新** 新增 minute-backfill 命令，增强 backfill-stock-names 功能
+**更新** 新增 minute-backfill 命令，增强 backfill-stock-names 功能，新增日内模式支持
 
 **章节来源**
 - [README.md:79-92](file://README.md#L79-L92)
@@ -703,3 +730,24 @@ quant-etf 的统一 CLI 将复杂的量化流程封装为一组清晰、可组�
 - [src/quant_etf/cli.py:145-248](file://src/quant_etf/cli.py#L145-L248)
 - [src/quant_etf/minute_collector.py:479-523](file://src/quant_etf/minute_collector.py#L479-L523)
 - [logs/minute_backfill_2026-05-25.log:1-26](file://logs/minute_backfill_2026-05-25.log#L1-L26)
+
+### 日内模式使用指南
+- **自动检测**：daily-run 命令会自动检测交易时段并在合适的时间启用日内模式
+- **手动控制**：run 命令支持 --intraday 参数手动启用日内模式
+- **适用场景**：交易时段内的实时监控和快速策略验证
+- **注意事项**：
+  - 仅在交易时段内有效，非交易时段会被忽略
+  - 会自动构造今日临时日K线，注意与历史数据的差异
+  - 不会影响历史数据的离线回测结果
+- **最佳实践**：
+  - 在交易时段使用 --intraday 参数进行实时策略验证
+  - 非交易时段使用标准模式进行离线回测
+  - 结合历史数据和实时数据进行综合分析
+
+**新增** 日内模式使用指南
+
+**章节来源**
+- [src/quant_etf/cli.py:25-93](file://src/quant_etf/cli.py#L25-L93)
+- [src/quant_etf/tasks.py:55-65](file://src/quant_etf/tasks.py#L55-L65)
+- [src/quant_etf/data_source.py:305-317](file://src/quant_etf/data_source.py#L305-L317)
+- [src/quant_etf/trading_day.py:91-101](file://src/quant_etf/trading_day.py#L91-L101)
