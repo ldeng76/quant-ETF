@@ -10,6 +10,7 @@ from quant_etf.tdx import (
     adjust_price_qfq, get_realtime_quote_single,
 )
 from quant_etf.trading_day import is_intraday
+from quant_etf.market_db import load_daily_from_db, save_daily_to_db, has_data_for_code
 
 _collect_info_path = Path(__file__).parent.parent / "collect_info"
 if str(_collect_info_path) not in sys.path:
@@ -178,33 +179,6 @@ class ETFDataSource:
         except Exception as e:
             logger.warning(f"Failed to save cached {map_type} name map to {path}: {e}")
 
-    def get_cache_path(self, code: str) -> Path:
-        """
-        获取缓存文件路径 (CSV格式)
-        """
-        etf_dir = self.data_dir / "etf"
-        etf_dir.mkdir(parents=True, exist_ok=True)
-
-        new_path = etf_dir / f"{code}.csv"
-        old_path = self.data_dir / f"{code}.csv"
-
-        if old_path.exists() and not new_path.exists():
-            try:
-                old_path.replace(new_path)
-                logger.info(f"Migrated ETF cache file from {old_path} to {new_path}")
-            except Exception as e:
-                logger.warning(f"Failed to migrate ETF cache file for {code}: {e}")
-
-        return new_path
-
-    def get_stock_cache_path(self, code: str) -> Path:
-        """
-        获取股票缓存文件路径 (CSV格式)
-        """
-        stock_dir = self.data_dir / "stocks"
-        stock_dir.mkdir(parents=True, exist_ok=True)
-        return stock_dir / f"{code}.csv"
-
     def check_is_fresh(self, df: pd.DataFrame) -> bool:
         """
         检查数据是否足够新鲜
@@ -269,20 +243,19 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Failed to load TDX data for {code}: {e}")
 
-        # 2. 尝试从缓存加载
-        cache_path = self.get_cache_path(code)
-        if cache_path.exists():
+        # 2. 尝试从 DuckDB 缓存加载
+        if has_data_for_code("etf_daily", code, self.data_dir):
             try:
-                df = pd.read_csv(cache_path, index_col="date", parse_dates=True)
+                df = load_daily_from_db("etf_daily", code, self.data_dir)
                 if not df.empty:
                     if not check_freshness or self.check_is_fresh(df):
-                        logger.info(f"Loaded ETF data for {code} from cache (last: {df.index[-1].date()})")
+                        logger.info(f"Loaded ETF data for {code} from DuckDB cache (last: {df.index[-1].date()})")
                         # 应用前复权处理
                         if adjust_qfq:
                             df = self._apply_qfq(code, df)
                         return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
             except Exception as e:
-                logger.error(f"Error reading cache for {code}: {e}")
+                logger.error(f"Error reading DuckDB cache for {code}: {e}")
 
         # 3. 尝试在线获取
         if allow_online:
@@ -293,10 +266,9 @@ class ETFDataSource:
                     # 应用前复权处理
                     if adjust_qfq:
                         df = self._apply_qfq(code, df)
-                    # 保存到缓存
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    df.to_csv(cache_path)
-                    logger.info(f"Saved online data to cache: {cache_path} (last: {df.index[-1].date()})")
+                    # 保存到 DuckDB 缓存
+                    save_daily_to_db("etf_daily", code, df, self.data_dir)
+                    logger.info(f"Saved online data to DuckDB cache: {code} (last: {df.index[-1].date()})")
                     return self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
             except Exception as e:
                 logger.error(f"Failed to fetch online data for {code}: {e}")
@@ -357,21 +329,17 @@ class ETFDataSource:
 
     def _save_with_intraday_to_cache(self, code: str, df: pd.DataFrame, is_stock: bool = False) -> None:
         """
-        将包含 intraday bar 的数据保存到 CSV 缓存
+        将包含 intraday bar 的数据保存到 DuckDB 缓存
         :param code: ETF代码或股票代码
         :param df: 包含 intraday bar 的 DataFrame
         :param is_stock: 是否为股票数据
         """
         try:
-            if is_stock:
-                cache_path = self.get_stock_cache_path(code)
-            else:
-                cache_path = self.get_cache_path(code)
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(cache_path)
-            logger.info(f"Saved intraday bar to cache: {cache_path} (date: {df.index[-1].date()})")
+            table = "stock_daily" if is_stock else "etf_daily"
+            save_daily_to_db(table, code, df, self.data_dir)
+            logger.info(f"Saved intraday bar to DuckDB cache: {table}/{code} (date: {df.index[-1].date()})")
         except Exception as e:
-            logger.warning(f"Failed to save intraday bar to cache for {code}: {e}")
+            logger.warning(f"Failed to save intraday bar to DuckDB cache for {code}: {e}")
 
     def _load_unadjusted_data(self, code: str) -> pd.DataFrame | None:
         """
@@ -385,15 +353,13 @@ class ETFDataSource:
             except Exception as e:
                 logger.debug(f"Failed to load unadjusted TDX data for {code}: {e}")
 
-        # 尝试从缓存加载
-        cache_path = self.get_cache_path(code)
-        if cache_path.exists():
-            try:
-                df = pd.read_csv(cache_path, index_col="date", parse_dates=True)
-                if not df.empty:
-                    return df
-            except Exception as e:
-                logger.debug(f"Failed to load unadjusted cache data for {code}: {e}")
+        # 尝试从 DuckDB 缓存加载
+        try:
+            df = load_daily_from_db("etf_daily", code, self.data_dir)
+            if not df.empty:
+                return df
+        except Exception as e:
+            logger.debug(f"Failed to load unadjusted DuckDB cache data for {code}: {e}")
 
         return None
 
@@ -439,17 +405,16 @@ class ETFDataSource:
             except Exception as e:
                 logger.error(f"Failed to load TDX stock data for {code}: {e}")
 
-        # 2. 尝试从缓存加载
-        cache_path = self.get_stock_cache_path(code)
-        if cache_path.exists():
+        # 2. 尝试从 DuckDB 缓存加载
+        if has_data_for_code("stock_daily", code, self.data_dir):
             try:
-                df = pd.read_csv(cache_path, index_col="date", parse_dates=True)
+                df = load_daily_from_db("stock_daily", code, self.data_dir)
                 if not df.empty:
                     if not check_freshness or self.check_is_fresh(df):
-                        logger.info(f"Loaded stock data for {code} from cache (last: {df.index[-1].date()})")
+                        logger.info(f"Loaded stock data for {code} from DuckDB cache (last: {df.index[-1].date()})")
                         return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
             except Exception as e:
-                logger.error(f"Error reading stock cache for {code}: {e}")
+                logger.error(f"Error reading DuckDB stock cache for {code}: {e}")
 
         # 3. 尝试在线获取
         if allow_online:
@@ -457,10 +422,9 @@ class ETFDataSource:
                 logger.info(f"Fetching stock data for {code} from online TDX server...")
                 df = get_security_bars(code)
                 if not df.empty:
-                    # 保存到缓存
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    df.to_csv(cache_path)
-                    logger.info(f"Saved online data to cache: {cache_path} (last: {df.index[-1].date()})")
+                    # 保存到 DuckDB 缓存
+                    save_daily_to_db("stock_daily", code, df, self.data_dir)
+                    logger.info(f"Saved online stock data to DuckDB cache: {code} (last: {df.index[-1].date()})")
                     return self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
             except Exception as e:
                 logger.error(f"Failed to fetch online stock data for {code}: {e}")
