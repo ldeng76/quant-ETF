@@ -312,6 +312,7 @@ def get_history_summary(
             "last_on_date": last_on_date,
             "off_date": off_date,
             "on_days": on_days,
+            "first_on_date": sorted_dates[0],
             "is_active": is_active,
         })
 

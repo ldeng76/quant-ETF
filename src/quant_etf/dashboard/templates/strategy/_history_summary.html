@@ -1,0 +1,47 @@
+{% if summary %}
+<div class="card mt-3">
+    <div class="card-header">
+        <i class="bi bi-clock-history"></i>
+        近 {{ days }} 天历史标的汇总
+        <span class="badge bg-secondary ms-2">{{ summary|length }} 只标的</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-striped mb-0">
+                <thead>
+                    <tr>
+                        <th>代码</th>
+                        <th>名称</th>
+                        <th>最早上榜日期</th>
+                        <th>最晚上榜日期</th>
+                        <th>最晚下榜日期</th>
+                        <th>在榜天数</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in summary %}
+                    <tr>
+                        <td>{{ item.code }}</td>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.first_on_date }}</td>
+                        <td>{{ item.last_on_date }}</td>
+                        <td>
+                            {% if item.is_active %}
+                            <span class="badge bg-success">在榜中</span>
+                            {% else %}
+                            {{ item.off_date }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="fw-bold">{{ item.on_days }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="text-muted small mt-2">暂无历史数据</div>
+{% endif %}
