@@ -79,5 +79,32 @@
         {% else %}
         <div class="text-muted">无结果数据</div>
         {% endif %}
+
+        {# 卖出信号区块 #}
+        {% if status.status == 'complete' %}
+        <div id="sell-signals-container"
+             hx-get="/api/strategy/sell-signals?strategy=etf"
+             hx-trigger="load"
+             hx-indicator="#sell-spinner">
+            <div id="sell-spinner" class="htmx-indicator text-center py-2">
+                <span class="spinner-border spinner-border-sm"></span>
+                <span class="small text-muted">检测卖出信号...</span>
+            </div>
+        </div>
+        {% endif %}
+
+        {# 历史汇总表格 #}
+        {% if status.status == 'complete' %}
+        <hr>
+        <div id="history-summary-container"
+             hx-get="/api/strategy/history-summary?strategy=etf&days=30"
+             hx-trigger="load"
+             hx-indicator="#history-spinner">
+            <div id="history-spinner" class="htmx-indicator text-center py-2">
+                <span class="spinner-border spinner-border-sm"></span>
+                <span class="small text-muted">加载历史汇总...</span>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>

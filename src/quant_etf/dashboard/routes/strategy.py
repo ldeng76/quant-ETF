@@ -10,6 +10,8 @@ from ..services.strategy_runner import (
     run_strategy,
     get_task_status,
     list_available_strategies,
+    get_history_summary,
+    get_sell_signals,
 )
 
 router = APIRouter(tags=["strategy"])
@@ -49,4 +51,32 @@ async def get_results(request: Request, run_id: str):
     return templates.TemplateResponse(
         request, "strategy/_results.html",
         {"status": status, "run_id": run_id}
+    )
+
+
+@router.get("/sell-signals", response_class=HTMLResponse)
+async def get_sell_signals_fragment(
+    request: Request,
+    strategy: str = "etf",
+):
+    """渲染卖出信号区块"""
+    signals = get_sell_signals(strategy_name=strategy)
+    return templates.TemplateResponse(
+        request, "strategy/_sell_signals.html",
+        {"signals": signals}
+    )
+
+
+@router.get("/history-summary", response_class=HTMLResponse)
+async def get_history_summary_endpoint(
+    request: Request,
+    strategy: str = "etf",
+    days: int = 30,
+    backfill: bool = True,
+):
+    """渲染历史标的汇总表格"""
+    summary = get_history_summary(strategy_name=strategy, days=days, auto_backfill=backfill)
+    return templates.TemplateResponse(
+        request, "strategy/_history_summary.html",
+        {"summary": summary, "days": days}
     )
