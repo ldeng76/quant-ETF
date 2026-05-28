@@ -85,6 +85,9 @@ uv run quant-etf <command> [options]
 | `list-tasks` | 列出所有可用选股任务 |
 | `dashboard` | 启动 Dashboard 监控系统 |
 | `minute-collect` | 启动分钟级 K 线数据采集器 |
+| `minute-fill` | 智能增量补全分钟 K 线数据 |
+| `minute-audit` | 审计分钟 K 线数据缺失 |
+| `minute-backfill` | 补采历史分钟级 K 线数据（旧版） |
 | `backfill` | 批量补跑历史日期任务 |
 | `restart-dashboard` | 一键重启 Dashboard 服务 |
 | `check` | Dashboard 健康检查 |
@@ -154,6 +157,48 @@ uv run quant-etf minute-collect
 
 无参数。支持 `Ctrl+C` 优雅退出。
 
+#### `minute-fill` — 智能增量补全分钟 K 线
+
+自动检测数据库中每个代码的最新时间戳，智能估算需要从 pytdx 拉取的 K 线数量并增量补全。Dashboard 启动时也会自动触发 ETF 池补全。
+
+```bash
+uv run quant-etf minute-fill                         # 默认补全 ETF 池，最近 60 天
+uv run quant-etf minute-fill --pool all --days 30    # 全部池，最近 30 天
+uv run quant-etf minute-fill --codes 510050,159949   # 指定代码
+```
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `--pool` | 股票池: `etf` / `stock` / `all` | `etf` |
+| `--days` | 最大回溯天数 | `60` |
+| `--codes` | 逗号分隔的代码（覆盖 `--pool`） | — |
+
+#### `minute-audit` — 审计分钟 K 线数据缺失
+
+基于交易日历检测缺失的分钟 K 线数据，支持 `--fix` 自动修复。审计粒度为日期级别（某日数据少于 100 根视为缺失）。
+
+```bash
+uv run quant-etf minute-audit                        # 审计 ETF 池
+uv run quant-etf minute-audit --fix                  # 审计并自动修复缺失
+uv run quant-etf minute-audit --codes 510050 --days 5  # 审计单个代码
+```
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `--pool` | 股票池: `etf` / `stock` / `all` | `etf` |
+| `--days` | 审计最近 N 个交易日 | `60` |
+| `--codes` | 逗号分隔的代码（覆盖 `--pool`） | — |
+| `--fix` | 自动修复缺失 | — |
+
+#### `minute-backfill` — 补采历史分钟数据（旧版）
+
+按日期范围批量拉取分钟 K 线数据。推荐使用 `minute-fill` 替代。
+
+```bash
+uv run quant-etf minute-backfill --days 30
+uv run quant-etf minute-backfill --start 2026-04-01 --end 2026-05-01
+```
+
 #### `backfill` — 批量补跑历史任务
 
 ```bash
@@ -208,6 +253,8 @@ uv run quant-etf <command>
                 ├── list-tasks  → tasks.py (列出)
                 ├── dashboard   → dashboard/app.py (FastAPI)
                 ├── minute-collect → minute_collector.py
+                ├── minute-fill  → minute_fill.py (智能增量补全)
+                ├── minute-audit → minute_fill.py (缺失审计)
                 ├── backfill    → tasks.py + trading_day.py
                 ├── restart-dashboard → 进程管理 + dashboard
                 ├── check       → HTTP 健康检查
@@ -267,6 +314,9 @@ quant-etf/
         ├── data_source.py   # 数据源管理
         ├── tdx.py           # 通达信数据处理
         ├── tasks.py         # 选股任务注册与调度
+        ├── minute_collector.py  # 分钟 K 线采集（pytdx → PG）
+        ├── minute_fill.py   # 分钟 K 线智能补全与审计
+        ├── minute_resampler.py  # 分钟 K 线重采样（DuckDB 内存）
         └── ...
 ├── tests/                   # 测试文件
 ├── output/                  # 输出目录
@@ -472,9 +522,9 @@ sse_manager.broadcast({"type": "strategy_result", ...})
 ### 数据流全景
 
 ```
-TDX (pytdx) → minute_collector → DuckDB minute_bars
-                                   ↓ resample
-                              DuckDB minute_bars_15m
+TDX (pytdx) → minute_collector → PG minute_bars
+                                   ↓ resample (DuckDB :memory:)
+                              5m / 15m / 30m / 60m bars
                                    ↓
             ┌──────────────────────┼────────────────────┐
             ▼                      ▼                    ▼
@@ -482,7 +532,7 @@ TDX (pytdx) → minute_collector → DuckDB minute_bars
             │                      │                    │
             ▼                      ▼                    ▼
      alert_recorder          MarketState JSON     CSV results
-     (alerts.duckdb)          ───────────────>    ──────────>
+     (monitor_alerts)         ───────────────>    ──────────>
             │                    /api/market/status   │
             ▼                                         ▼
      Dashboard SQLite                         alert_engine.check()
@@ -567,10 +617,9 @@ Dashboard 监控系统提供以下维度的指标数据：
 
 | 数据库 | 位置 | 用途 |
 |--------|------|------|
+| PostgreSQL | `quant_etf` 库 | 分钟 K 线 (`minute_bars`)、日线 (`market_daily`)、告警 (`monitor_alerts`) |
 | SQLite | `data/dashboard.db` | 账户、持仓、告警规则、Dashboard 告警、调度配置 |
-| DuckDB | `data/minute/minute_data.duckdb` | 1分钟 K 线数据 |
-| DuckDB | `data/minute/minute_data_15m.duckdb` | 15分钟重采样 K 线 |
-| DuckDB | `data/alerts/alerts.duckdb` | ETFMonitor 信号告警 |
+| DuckDB | `:memory:` (运行时) | 分钟 K 线重采样（5m/15m/30m/60m） |
 | CSV | `data/results/{date}/*.csv` | 每日策略执行结果 |
 
 ### 配置参考 (`dashboard/config.py`)
