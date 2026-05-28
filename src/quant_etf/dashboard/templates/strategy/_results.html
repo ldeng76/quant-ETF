@@ -66,9 +66,19 @@
                 </thead>
                 <tbody>
                     {% for row in status.result %}
+                    {% set code = row.get('code', '') %}
+                    {% set name = row.get('name', '') %}
                     <tr>
-                        {% for val in row.values() %}
-                        <td>{{ val }}</td>
+                        {% for key in status.result[0].keys() %}
+                        {% if key in ('p5', 'p10', 'p20', 'p60') %}
+                        <td class="drilldown-cell"
+                            data-code="{{ code }}" data-field="{{ key }}" data-run-id="{{ run_id }}"
+                            data-name="{{ name }}"
+                            onclick="showDrilldown(this)"
+                            title="点击查看明细">{{ row[key] }}</td>
+                        {% else %}
+                        <td>{{ row[key] }}</td>
+                        {% endif %}
                         {% endfor %}
                     </tr>
                     {% endfor %}
@@ -108,3 +118,75 @@
         {% endif %}
     </div>
 </div>
+
+{# Drilldown modal + ECharts #}
+{% if status.status == 'complete' %}
+<style>
+.drilldown-cell { cursor: pointer; text-decoration: underline dotted; color: #0d6efd; }
+.drilldown-cell:hover { background-color: #e8f0fe; }
+</style>
+<div class="modal fade" id="drilldownModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="drilldownTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="drilldownChart" style="width:100%;height:350px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+(function() {
+    let chartInstance = null;
+
+    window.showDrilldown = function(el) {
+        const code = el.dataset.code;
+        const field = el.dataset.field;
+        const runId = el.dataset.runId;
+        const name = el.dataset.name || '';
+
+        fetch('/api/strategy/drilldown/' + runId + '?code=' + code + '&field=' + field)
+            .then(r => r.ok ? r.json() : Promise.reject('Failed to load data'))
+            .then(data => {
+                document.getElementById('drilldownTitle').textContent =
+                    data.code + ' ' + name + ' - ' + data.label + ' 累计涨幅';
+
+                if (chartInstance) {
+                    chartInstance.dispose();
+                }
+                chartInstance = echarts.init(document.getElementById('drilldownChart'));
+
+                const pctValues = data.values.map(v => (v * 100).toFixed(2));
+                chartInstance.setOption({
+                    tooltip: {
+                        trigger: 'axis',
+                        formatter: function(params) {
+                            const p = params[0];
+                            return p.name + '<br/>' + p.seriesName + ': ' + p.value + '%';
+                        }
+                    },
+                    xAxis: { type: 'category', data: data.dates, axisLabel: { rotate: 45 } },
+                    yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+                    series: [{
+                        name: '累计涨幅',
+                        type: 'line',
+                        data: pctValues,
+                        smooth: true,
+                        lineStyle: { width: 2 },
+                        areaStyle: { opacity: 0.1 }
+                    }],
+                    grid: { left: 60, right: 20, top: 20, bottom: 60 }
+                });
+
+                const modal = new bootstrap.Modal(document.getElementById('drilldownModal'));
+                modal.show();
+            })
+            .catch(err => { alert('加载明细数据失败: ' + err); });
+    };
+})();
+</script>
+{% endif %}

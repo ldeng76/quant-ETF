@@ -114,6 +114,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
 
             _running_tasks[run_id]["progress"] = 50
             task.run()
+            _running_tasks[run_id]["task_ref"] = task
 
             _running_tasks[run_id]["progress"] = 80
 
@@ -467,3 +468,64 @@ def get_history_summary(
     _fix_names(results)
     _history_cache[cache_key] = (datetime.now(), results)
     return results
+
+def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
+    """
+    获取某标的在某周期字段的累计涨幅序列（用于弹窗图表）
+    :param run_id: 策略执行 ID
+    :param code: 标的代码
+    :param field: 字段名 p60/p20/p10/p5
+    :return: {code, field, label, dates, values}
+    """
+    if run_id not in _running_tasks:
+        raise ValueError(f"Run {run_id} not found")
+
+    task_info = _running_tasks[run_id]
+    if task_info.get("status") != "complete":
+        raise ValueError(f"Run {run_id} not complete")
+
+    task = task_info.get("task_ref")
+    if task is None or not hasattr(task, "_loaded_data") or not task._loaded_data:
+        raise ValueError("Drilldown data not available")
+
+    if code not in task._loaded_data:
+        raise ValueError(f"Code {code} not in loaded data")
+
+    # p60 -> 60 days, p20 -> 20 days, etc.
+    day_map = {"p60": 60, "p20": 20, "p10": 10, "p5": 5}
+    if field not in day_map:
+        raise ValueError(f"Invalid field: {field}")
+    days = day_map[field]
+
+    from quant_etf.bar_interval import bars_for_days
+    bi = task._bar_interval
+    n_bars = bars_for_days(days, bi)
+
+    df = task._loaded_data[code]
+    if df.empty or len(df) < n_bars + 1:
+        # 不足则取全部
+        slice_df = df.copy()
+    else:
+        slice_df = df.iloc[-(n_bars + 1):].copy()
+
+    # 累计涨幅
+    base_price = slice_df.iloc[0]["close"]
+    cum_ret = ((slice_df["close"] - base_price) / base_price).tolist()
+
+    # 日期/时间标签
+    if "date" in slice_df.columns:
+        dates = slice_df["date"].tolist()
+    elif slice_df.index.dtype == "object":
+        dates = [str(i) for i in slice_df.index]
+    else:
+        dates = slice_df.index.strftime("%Y-%m-%d %H:%M").tolist()
+
+    label = bi.unit_label(days)
+
+    return {
+        "code": code,
+        "field": field,
+        "label": label,
+        "dates": dates,
+        "values": cum_ret,
+    }
