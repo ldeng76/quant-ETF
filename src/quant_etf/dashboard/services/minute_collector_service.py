@@ -18,7 +18,7 @@ TRADING_WINDOWS = [
 
 # 采集参数(硬编码,后续可扩展为可配置)
 COLLECT_COUNT = 50       # 每次采集 K 线条数
-COLLECT_INTERVAL = 60    # 采集间隔秒数
+COLLECT_INTERVAL = 120   # 采集间隔秒数
 
 
 def is_in_trading_window(now: datetime | None = None) -> bool:
@@ -187,6 +187,8 @@ class MinuteCollectorService:
                                 f"minute_collector_service: collected {code} - "
                                 f"{len(filtered)} new bars"
                             )
+                            # 聚合分钟数据为日K线并更新 market_daily
+                            self._upsert_daily_bar(code, data)
                 except Exception as e:
                     logger.warning(f"minute_collector_service: collect {code} failed: {e}")
 
@@ -206,6 +208,50 @@ class MinuteCollectorService:
         # 窗口结束，调度下一窗口
         if not self._stop_event.is_set():
             self._schedule_next_window()
+
+    def _upsert_daily_bar(self, code: str, minute_data: list[dict]) -> None:
+        """
+        将分钟K线聚合为当日日K线，upsert 到 market_daily 表。
+
+        :param code: 证券代码
+        :param minute_data: pytdx 返回的分钟K线 dict list
+        """
+        try:
+            import pandas as pd
+            from quant_etf.market_db import save_daily_to_db
+
+            # 筛选当日数据
+            today = datetime.now().date()
+            today_bars = [
+                b for b in minute_data
+                if b.get("time") and b["time"].date() == today
+            ]
+            if not today_bars:
+                return
+
+            close = today_bars[-1].get("close", 0)
+            if not close or close <= 0:
+                return
+
+            # 聚合为单条日K线
+            daily_row = pd.DataFrame(
+                {
+                    "open": [today_bars[0].get("open", close)],
+                    "high": [max(b.get("high", 0) for b in today_bars)],
+                    "low": [min(b.get("low", float("inf")) for b in today_bars)],
+                    "close": [close],
+                    "amount": [sum(b.get("amount", 0) for b in today_bars)],
+                    "volume": [sum(b.get("vol", b.get("volume", 0)) for b in today_bars)],
+                },
+                index=[datetime.combine(today, datetime.min.time())],
+            )
+            daily_row.index.name = "date"
+
+            save_daily_to_db("etf_daily", code, daily_row)
+            logger.debug(f"minute_collector_service: upserted daily bar for {code}")
+
+        except Exception as e:
+            logger.warning(f"minute_collector_service: upsert daily bar for {code} failed: {e}")
 
     def _schedule_next_window(self) -> None:
         """窗口结束后调度下一窗口"""
