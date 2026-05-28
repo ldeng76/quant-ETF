@@ -25,10 +25,12 @@ INDEX_WEIGHTS = {
 ```
 
 **计算**：
-- 对每只指数 ETF 调用 `calculate_returns()` 得到 p60/p20/p10/p5
-- 用 `MOMENTUM_WEIGHTS` 加权得到每只指数分数
-- 再用 `INDEX_WEIGHTS` 加权得到大盘总分 `market_score`
-- 与所有指数分数的中位数比较：`is_bullish = market_score > median`
+- 对每只指数 ETF，用其 K 线数据在每个交易日（滚动窗口）计算 p60/p20/p10/p5，用 MOMENTUM_WEIGHTS 加权得到当日指数分数
+- 用 INDEX_WEIGHTS 加权 4 只指数分数得到每日 `market_score`
+- 取最近 20 个交易日的 market_score 序列，计算中位数作为阈值
+- `is_bullish = 当日 market_score > 滚动中位数`
+
+**不需要持久化**：每次策略执行时从 K 线数据实时回算历史 market_score 序列。
 
 **位置**：`src/quant_etf/market_regime.py`，独立模块
 
