@@ -70,16 +70,13 @@ class StrategyEngine:
         """
         计算单只 ETF 的各周期涨幅
         """
-        min_bars = bars_for_days(60, self._bar_interval) + 1
+        min_bars = 61
         if df.empty or len(df) < min_bars:
             return {}
 
         current_price = df.iloc[-1]["close"]
 
-        b60 = bars_for_days(60, self._bar_interval)
-        b20 = bars_for_days(20, self._bar_interval)
-        b10 = bars_for_days(10, self._bar_interval)
-        b5 = bars_for_days(5, self._bar_interval)
+        b60, b20, b10, b5 = 60, 20, 10, 5
 
         try:
             p60 = df.iloc[-(b60 + 1)]["close"]

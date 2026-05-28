@@ -18,12 +18,7 @@ class BarInterval:
 
     def unit_label(self, n_bars: int) -> str:
         """返回 n_bars 根 K 线的中文描述"""
-        if self.is_daily:
-            return f"{n_bars}日"
-        days = n_bars / self.bars_per_day
-        if days == int(days):
-            return f"{n_bars}根({int(days)}天)"
-        return f"{n_bars}根({days:.1f}天)"
+        return f"{n_bars}根"
 
 
 INTERVALS: dict[str, BarInterval] = {
