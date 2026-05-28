@@ -512,13 +512,13 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
     base_price = slice_df.iloc[0]["close"]
     cum_ret = ((slice_df["close"] - base_price) / base_price).tolist()
 
-    # 日期/时间标签
+    # 日期/时间标签（去掉年份）
     if "date" in slice_df.columns:
-        dates = slice_df["date"].tolist()
-    elif slice_df.index.dtype == "object":
-        dates = [str(i) for i in slice_df.index]
+        raw = slice_df["date"].astype(str)
     else:
-        dates = slice_df.index.strftime("%Y-%m-%d %H:%M").tolist()
+        raw = slice_df.index.astype(str)
+    fmt = "%m-%d %H:%M" if bi.is_daily is False else "%m-%d"
+    dates = pd.to_datetime(raw).strftime(fmt).tolist()
 
     label = bi.unit_label(days)
 
