@@ -45,6 +45,8 @@ def start_background_preload():
             preload_market_state()
             from quant_etf.minute_fill import ensure_minute_data_ready
             ensure_minute_data_ready()
+            from quant_etf.dashboard.services.minute_collector_service import start_minute_collector_service
+            start_minute_collector_service()
             _preload_completed = True
         except Exception as e:
             _preload_error = str(e)
