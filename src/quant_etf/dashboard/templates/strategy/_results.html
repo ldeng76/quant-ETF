@@ -66,6 +66,7 @@
                         <th>
                             {# 字段名中文映射 #}
                             {% set col_map = {
+                                'interval': 'K线周期',
                                 'date': '日期',
                                 'code': '代码',
                                 'name': '名称',
@@ -99,6 +100,8 @@
                             data-name="{{ name }}"
                             onclick="showDrilldown(this)"
                             title="点击查看明细">{{ row[key] }}</td>
+                        {% elif key == 'interval' %}
+                        <td>{{ {'1d': '日线', '60m': '60分钟', '30m': '30分钟', '15m': '15分钟'}.get(row[key], row[key]) }}</td>
                         {% else %}
                         <td>{{ row[key] }}</td>
                         {% endif %}
