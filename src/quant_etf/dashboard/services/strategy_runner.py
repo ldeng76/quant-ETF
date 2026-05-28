@@ -497,8 +497,8 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
         raise ValueError(f"Invalid field: {field}")
     days = day_map[field]
 
-    from quant_etf.bar_interval import bars_for_days
-    bi = task._bar_interval
+    from quant_etf.bar_interval import bars_for_days, get_interval
+    bi = get_interval(task._bar_interval)
     n_bars = bars_for_days(days, bi)
 
     df = task._loaded_data[code]
