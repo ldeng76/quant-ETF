@@ -1,0 +1,1222 @@
+[
+  {
+    "code": "000031",
+    "name": "大悦城",
+    "market": "sz"
+  },
+  {
+    "code": "000063",
+    "name": "中兴通讯",
+    "market": "sz"
+  },
+  {
+    "code": "000547",
+    "name": "航天发展",
+    "market": "sz"
+  },
+  {
+    "code": "000554",
+    "name": "泰山石油",
+    "market": "sz"
+  },
+  {
+    "code": "000559",
+    "name": "万向钱潮",
+    "market": "sz"
+  },
+  {
+    "code": "000688",
+    "name": "国城矿业",
+    "market": "sz"
+  },
+  {
+    "code": "000700",
+    "name": "模塑科技",
+    "market": "sz"
+  },
+  {
+    "code": "000968",
+    "name": "蓝焰控股",
+    "market": "sz"
+  },
+  {
+    "code": "000988",
+    "name": "华工科技",
+    "market": "sz"
+  },
+  {
+    "code": "001203",
+    "name": "大中矿业",
+    "market": "sz"
+  },
+  {
+    "code": "001400",
+    "name": "江顺科技",
+    "market": "sz"
+  },
+  {
+    "code": "001896",
+    "name": "豫能控股",
+    "market": "sz"
+  },
+  {
+    "code": "002017",
+    "name": "东信和平",
+    "market": "sz"
+  },
+  {
+    "code": "002044",
+    "name": "美年健康",
+    "market": "sz"
+  },
+  {
+    "code": "002050",
+    "name": "三花智控",
+    "market": "sz"
+  },
+  {
+    "code": "002080",
+    "name": "中材科技",
+    "market": "sz"
+  },
+  {
+    "code": "002131",
+    "name": "利欧股份",
+    "market": "sz"
+  },
+  {
+    "code": "002149",
+    "name": "西部材料",
+    "market": "sz"
+  },
+  {
+    "code": "002151",
+    "name": "北斗星通",
+    "market": "sz"
+  },
+  {
+    "code": "002155",
+    "name": "湖南黄金",
+    "market": "sz"
+  },
+  {
+    "code": "002156",
+    "name": "通富微电",
+    "market": "sz"
+  },
+  {
+    "code": "002173",
+    "name": "创新医疗",
+    "market": "sz"
+  },
+  {
+    "code": "002195",
+    "name": "岩山科技",
+    "market": "sz"
+  },
+  {
+    "code": "002202",
+    "name": "金风科技",
+    "market": "sz"
+  },
+  {
+    "code": "002207",
+    "name": "*ST准油",
+    "market": "sz"
+  },
+  {
+    "code": "002244",
+    "name": "滨江集团",
+    "market": "sz"
+  },
+  {
+    "code": "002261",
+    "name": "拓维信息",
+    "market": "sz"
+  },
+  {
+    "code": "002271",
+    "name": "东方雨虹",
+    "market": "sz"
+  },
+  {
+    "code": "002272",
+    "name": "川润股份",
+    "market": "sz"
+  },
+  {
+    "code": "002342",
+    "name": "巨力索具",
+    "market": "sz"
+  },
+  {
+    "code": "002364",
+    "name": "中恒电气",
+    "market": "sz"
+  },
+  {
+    "code": "002400",
+    "name": "省广集团",
+    "market": "sz"
+  },
+  {
+    "code": "002413",
+    "name": "雷科防务",
+    "market": "sz"
+  },
+  {
+    "code": "002491",
+    "name": "通鼎互联",
+    "market": "sz"
+  },
+  {
+    "code": "002506",
+    "name": "协鑫集成",
+    "market": "sz"
+  },
+  {
+    "code": "002519",
+    "name": "银河电子",
+    "market": "sz"
+  },
+  {
+    "code": "002536",
+    "name": "飞龙股份",
+    "market": "sz"
+  },
+  {
+    "code": "002558",
+    "name": "巨人网络",
+    "market": "sz"
+  },
+  {
+    "code": "002594",
+    "name": "比亚迪",
+    "market": "sz"
+  },
+  {
+    "code": "002602",
+    "name": "世纪华通",
+    "market": "sz"
+  },
+  {
+    "code": "002654",
+    "name": "万润科技",
+    "market": "sz"
+  },
+  {
+    "code": "002703",
+    "name": "浙江世宝",
+    "market": "sz"
+  },
+  {
+    "code": "002709",
+    "name": "天赐材料",
+    "market": "sz"
+  },
+  {
+    "code": "002714",
+    "name": "牧原股份",
+    "market": "sz"
+  },
+  {
+    "code": "002757",
+    "name": "南兴股份",
+    "market": "sz"
+  },
+  {
+    "code": "002792",
+    "name": "通宇通讯",
+    "market": "sz"
+  },
+  {
+    "code": "002812",
+    "name": "恩捷股份",
+    "market": "sz"
+  },
+  {
+    "code": "002837",
+    "name": "英维克",
+    "market": "sz"
+  },
+  {
+    "code": "002843",
+    "name": "泰嘉股份",
+    "market": "sz"
+  },
+  {
+    "code": "002851",
+    "name": "麦格米特",
+    "market": "sz"
+  },
+  {
+    "code": "002895",
+    "name": "川恒股份",
+    "market": "sz"
+  },
+  {
+    "code": "003007",
+    "name": "直真科技",
+    "market": "sz"
+  },
+  {
+    "code": "159001",
+    "name": "货币ETF易方达",
+    "market": "sz"
+  },
+  {
+    "code": "159202",
+    "name": "恒生互联网ETF万家",
+    "market": "sz"
+  },
+  {
+    "code": "159206",
+    "name": "卫星ETF永赢",
+    "market": "sz"
+  },
+  {
+    "code": "159261",
+    "name": "创业板新能源ETF鹏华",
+    "market": "sz"
+  },
+  {
+    "code": "159265",
+    "name": "港股消费ETF鹏华",
+    "market": "sz"
+  },
+  {
+    "code": "159312",
+    "name": "恒指港股通ETF广发",
+    "market": "sz"
+  },
+  {
+    "code": "159352",
+    "name": "A500ETF南方",
+    "market": "sz"
+  },
+  {
+    "code": "159363",
+    "name": "创业板人工智能ETF华宝",
+    "market": "sz"
+  },
+  {
+    "code": "159516",
+    "name": "半导体设备ETF国泰",
+    "market": "sz"
+  },
+  {
+    "code": "159526",
+    "name": "机器人ETF嘉实",
+    "market": "sz"
+  },
+  {
+    "code": "159560",
+    "name": "芯片ETF景顺",
+    "market": "sz"
+  },
+  {
+    "code": "159565",
+    "name": "汽车零部件ETF易方达",
+    "market": "sz"
+  },
+  {
+    "code": "159567",
+    "name": "港股创新药ETF银华",
+    "market": "sz"
+  },
+  {
+    "code": "159590",
+    "name": "软件ETF汇添富",
+    "market": "sz"
+  },
+  {
+    "code": "159605",
+    "name": "中概互联ETF广发",
+    "market": "sz"
+  },
+  {
+    "code": "159638",
+    "name": "高端装备ETF嘉实",
+    "market": "sz"
+  },
+  {
+    "code": "159652",
+    "name": "有色ETF汇添富",
+    "market": "sz"
+  },
+  {
+    "code": "159667",
+    "name": "工业母机ETF国泰",
+    "market": "sz"
+  },
+  {
+    "code": "159697",
+    "name": "石油ETF鹏华",
+    "market": "sz"
+  },
+  {
+    "code": "159712",
+    "name": "港股通50ETF国泰",
+    "market": "sz"
+  },
+  {
+    "code": "159713",
+    "name": "稀土ETF富国",
+    "market": "sz"
+  },
+  {
+    "code": "159742",
+    "name": "恒生科技ETF博时",
+    "market": "sz"
+  },
+  {
+    "code": "159750",
+    "name": "港股科技50ETF招商",
+    "market": "sz"
+  },
+  {
+    "code": "159775",
+    "name": "电池ETF建信",
+    "market": "sz"
+  },
+  {
+    "code": "159780",
+    "name": "科创创业50ETF南方",
+    "market": "sz"
+  },
+  {
+    "code": "159811",
+    "name": "5GETF博时",
+    "market": "sz"
+  },
+  {
+    "code": "159819",
+    "name": "人工智能ETF易方达",
+    "market": "sz"
+  },
+  {
+    "code": "159856",
+    "name": "互联网龙头ETF工银",
+    "market": "sz"
+  },
+  {
+    "code": "159859",
+    "name": "生物医药ETF天弘",
+    "market": "sz"
+  },
+  {
+    "code": "159869",
+    "name": "游戏ETF华夏",
+    "market": "sz"
+  },
+  {
+    "code": "159886",
+    "name": "机械ETF富国",
+    "market": "sz"
+  },
+  {
+    "code": "159941",
+    "name": "纳指ETF广发",
+    "market": "sz"
+  },
+  {
+    "code": "159949",
+    "name": "创业板50ETF华安",
+    "market": "sz"
+  },
+  {
+    "code": "159957",
+    "name": "创业板ETF华夏",
+    "market": "sz"
+  },
+  {
+    "code": "159985",
+    "name": "豆粕ETF华夏",
+    "market": "sz"
+  },
+  {
+    "code": "159991",
+    "name": "创业板大盘ETF招商",
+    "market": "sz"
+  },
+  {
+    "code": "300058",
+    "name": "蓝色光标",
+    "market": "sz"
+  },
+  {
+    "code": "300059",
+    "name": "东方财富",
+    "market": "sz"
+  },
+  {
+    "code": "300102",
+    "name": "乾照光电",
+    "market": "sz"
+  },
+  {
+    "code": "300136",
+    "name": "信维通信",
+    "market": "sz"
+  },
+  {
+    "code": "300157",
+    "name": "新锦动力",
+    "market": "sz"
+  },
+  {
+    "code": "300164",
+    "name": "通源石油",
+    "market": "sz"
+  },
+  {
+    "code": "300191",
+    "name": "潜能恒信",
+    "market": "sz"
+  },
+  {
+    "code": "300223",
+    "name": "北京君正",
+    "market": "sz"
+  },
+  {
+    "code": "300253",
+    "name": "卫宁健康",
+    "market": "sz"
+  },
+  {
+    "code": "300293",
+    "name": "蓝英装备",
+    "market": "sz"
+  },
+  {
+    "code": "300308",
+    "name": "中际旭创",
+    "market": "sz"
+  },
+  {
+    "code": "300364",
+    "name": "中文在线",
+    "market": "sz"
+  },
+  {
+    "code": "300383",
+    "name": "光环新网",
+    "market": "sz"
+  },
+  {
+    "code": "300395",
+    "name": "菲利华",
+    "market": "sz"
+  },
+  {
+    "code": "300442",
+    "name": "润泽科技",
+    "market": "sz"
+  },
+  {
+    "code": "300456",
+    "name": "赛微电子",
+    "market": "sz"
+  },
+  {
+    "code": "300502",
+    "name": "新易盛",
+    "market": "sz"
+  },
+  {
+    "code": "300503",
+    "name": "昊志机电",
+    "market": "sz"
+  },
+  {
+    "code": "300505",
+    "name": "川金诺",
+    "market": "sz"
+  },
+  {
+    "code": "300552",
+    "name": "万集科技",
+    "market": "sz"
+  },
+  {
+    "code": "300570",
+    "name": "太辰光",
+    "market": "sz"
+  },
+  {
+    "code": "300602",
+    "name": "飞荣达",
+    "market": "sz"
+  },
+  {
+    "code": "300604",
+    "name": "长川科技",
+    "market": "sz"
+  },
+  {
+    "code": "300620",
+    "name": "光库科技",
+    "market": "sz"
+  },
+  {
+    "code": "300726",
+    "name": "宏达电子",
+    "market": "sz"
+  },
+  {
+    "code": "300731",
+    "name": "科创新源",
+    "market": "sz"
+  },
+  {
+    "code": "300750",
+    "name": "宁德时代",
+    "market": "sz"
+  },
+  {
+    "code": "300762",
+    "name": "上海瀚讯",
+    "market": "sz"
+  },
+  {
+    "code": "300814",
+    "name": "中富电路",
+    "market": "sz"
+  },
+  {
+    "code": "300830",
+    "name": "金现代",
+    "market": "sz"
+  },
+  {
+    "code": "300857",
+    "name": "协创数据",
+    "market": "sz"
+  },
+  {
+    "code": "300870",
+    "name": "欧陆通",
+    "market": "sz"
+  },
+  {
+    "code": "300887",
+    "name": "谱尼测试",
+    "market": "sz"
+  },
+  {
+    "code": "300894",
+    "name": "火星人",
+    "market": "sz"
+  },
+  {
+    "code": "300986",
+    "name": "志特新材",
+    "market": "sz"
+  },
+  {
+    "code": "300990",
+    "name": "同飞股份",
+    "market": "sz"
+  },
+  {
+    "code": "301005",
+    "name": "超捷股份",
+    "market": "sz"
+  },
+  {
+    "code": "301018",
+    "name": "申菱环境",
+    "market": "sz"
+  },
+  {
+    "code": "301079",
+    "name": "邵阳液压",
+    "market": "sz"
+  },
+  {
+    "code": "301120",
+    "name": "新特电气",
+    "market": "sz"
+  },
+  {
+    "code": "301123",
+    "name": "奕东电子",
+    "market": "sz"
+  },
+  {
+    "code": "301171",
+    "name": "易点天下",
+    "market": "sz"
+  },
+  {
+    "code": "301217",
+    "name": "铜冠铜箔",
+    "market": "sz"
+  },
+  {
+    "code": "301225",
+    "name": "恒勃股份",
+    "market": "sz"
+  },
+  {
+    "code": "301230",
+    "name": "泓博医药",
+    "market": "sz"
+  },
+  {
+    "code": "301306",
+    "name": "西测测试",
+    "market": "sz"
+  },
+  {
+    "code": "301611",
+    "name": "珂玛科技",
+    "market": "sz"
+  },
+  {
+    "code": "510050",
+    "name": "上证50ETF华夏",
+    "market": "sh"
+  },
+  {
+    "code": "510170",
+    "name": "大宗商品ETF国联安",
+    "market": "sh"
+  },
+  {
+    "code": "510310",
+    "name": "沪深300ETF易方达",
+    "market": "sh"
+  },
+  {
+    "code": "510880",
+    "name": "红利ETF华泰柏瑞",
+    "market": "sh"
+  },
+  {
+    "code": "511160",
+    "name": "国债ETF东财",
+    "market": "sh"
+  },
+  {
+    "code": "512070",
+    "name": "证券保险ETF易方达",
+    "market": "sh"
+  },
+  {
+    "code": "512480",
+    "name": "半导体ETF国联安",
+    "market": "sh"
+  },
+  {
+    "code": "512660",
+    "name": "军工ETF国泰",
+    "market": "sh"
+  },
+  {
+    "code": "512690",
+    "name": "酒ETF鹏华",
+    "market": "sh"
+  },
+  {
+    "code": "513090",
+    "name": "香港证券ETF易方达",
+    "market": "sh"
+  },
+  {
+    "code": "513100",
+    "name": "纳指ETF国泰",
+    "market": "sh"
+  },
+  {
+    "code": "513130",
+    "name": "恒生科技ETF华泰柏瑞",
+    "market": "sh"
+  },
+  {
+    "code": "513330",
+    "name": "恒生互联网ETF华夏",
+    "market": "sh"
+  },
+  {
+    "code": "513500",
+    "name": "标普500ETF博时",
+    "market": "sh"
+  },
+  {
+    "code": "515020",
+    "name": "银行ETF华夏",
+    "market": "sh"
+  },
+  {
+    "code": "515220",
+    "name": "煤炭ETF国泰",
+    "market": "sh"
+  },
+  {
+    "code": "516020",
+    "name": "化工ETF华宝",
+    "market": "sh"
+  },
+  {
+    "code": "516130",
+    "name": "消费龙头ETF华宝",
+    "market": "sh"
+  },
+  {
+    "code": "516390",
+    "name": "新能源车ETF汇添富",
+    "market": "sh"
+  },
+  {
+    "code": "517520",
+    "name": "黄金股ETF永赢",
+    "market": "sh"
+  },
+  {
+    "code": "518880",
+    "name": "黄金ETF华安",
+    "market": "sh"
+  },
+  {
+    "code": "560080",
+    "name": "中药ETF汇添富",
+    "market": "sh"
+  },
+  {
+    "code": "560980",
+    "name": "光伏龙头ETF广发",
+    "market": "sh"
+  },
+  {
+    "code": "561220",
+    "name": "数字经济ETF工银",
+    "market": "sh"
+  },
+  {
+    "code": "561280",
+    "name": "中证1000增强ETF工银",
+    "market": "sh"
+  },
+  {
+    "code": "561380",
+    "name": "电网设备ETF国泰",
+    "market": "sh"
+  },
+  {
+    "code": "561700",
+    "name": "电力ETF博时",
+    "market": "sh"
+  },
+  {
+    "code": "562820",
+    "name": "集成电路ETF嘉实",
+    "market": "sh"
+  },
+  {
+    "code": "562920",
+    "name": "信息安全ETF易方达",
+    "market": "sh"
+  },
+  {
+    "code": "588010",
+    "name": "科创新材料ETF博时",
+    "market": "sh"
+  },
+  {
+    "code": "600028",
+    "name": "中国石化",
+    "market": "sh"
+  },
+  {
+    "code": "600030",
+    "name": "中信证券",
+    "market": "sh"
+  },
+  {
+    "code": "600089",
+    "name": "特变电工",
+    "market": "sh"
+  },
+  {
+    "code": "600110",
+    "name": "诺德股份",
+    "market": "sh"
+  },
+  {
+    "code": "600111",
+    "name": "北方稀土",
+    "market": "sh"
+  },
+  {
+    "code": "600118",
+    "name": "中国卫星",
+    "market": "sh"
+  },
+  {
+    "code": "600256",
+    "name": "广汇能源",
+    "market": "sh"
+  },
+  {
+    "code": "600339",
+    "name": "中油工程",
+    "market": "sh"
+  },
+  {
+    "code": "600343",
+    "name": "航天动力",
+    "market": "sh"
+  },
+  {
+    "code": "600363",
+    "name": "联创光电",
+    "market": "sh"
+  },
+  {
+    "code": "600410",
+    "name": "华胜天成",
+    "market": "sh"
+  },
+  {
+    "code": "600498",
+    "name": "烽火通信",
+    "market": "sh"
+  },
+  {
+    "code": "600519",
+    "name": "贵州茅台",
+    "market": "sh"
+  },
+  {
+    "code": "600556",
+    "name": "天下秀",
+    "market": "sh"
+  },
+  {
+    "code": "600584",
+    "name": "长电科技",
+    "market": "sh"
+  },
+  {
+    "code": "600589",
+    "name": "大位科技",
+    "market": "sh"
+  },
+  {
+    "code": "600637",
+    "name": "东方明珠",
+    "market": "sh"
+  },
+  {
+    "code": "600673",
+    "name": "东阳光",
+    "market": "sh"
+  },
+  {
+    "code": "600759",
+    "name": "ST洲际",
+    "market": "sh"
+  },
+  {
+    "code": "600775",
+    "name": "南京熊猫",
+    "market": "sh"
+  },
+  {
+    "code": "600783",
+    "name": "鲁信创投",
+    "market": "sh"
+  },
+  {
+    "code": "600855",
+    "name": "航天长峰",
+    "market": "sh"
+  },
+  {
+    "code": "600869",
+    "name": "远东股份",
+    "market": "sh"
+  },
+  {
+    "code": "600871",
+    "name": "石化油服",
+    "market": "sh"
+  },
+  {
+    "code": "600879",
+    "name": "航天电子",
+    "market": "sh"
+  },
+  {
+    "code": "600880",
+    "name": "博瑞传播",
+    "market": "sh"
+  },
+  {
+    "code": "600938",
+    "name": "中国海油",
+    "market": "sh"
+  },
+  {
+    "code": "601106",
+    "name": "中国一重",
+    "market": "sh"
+  },
+  {
+    "code": "601138",
+    "name": "工业富联",
+    "market": "sh"
+  },
+  {
+    "code": "601179",
+    "name": "中国西电",
+    "market": "sh"
+  },
+  {
+    "code": "601208",
+    "name": "东材科技",
+    "market": "sh"
+  },
+  {
+    "code": "601611",
+    "name": "中国核建",
+    "market": "sh"
+  },
+  {
+    "code": "601698",
+    "name": "中国卫通",
+    "market": "sh"
+  },
+  {
+    "code": "601808",
+    "name": "中海油服",
+    "market": "sh"
+  },
+  {
+    "code": "601857",
+    "name": "中国石油",
+    "market": "sh"
+  },
+  {
+    "code": "601869",
+    "name": "长飞光纤",
+    "market": "sh"
+  },
+  {
+    "code": "601872",
+    "name": "招商轮船",
+    "market": "sh"
+  },
+  {
+    "code": "601899",
+    "name": "紫金矿业",
+    "market": "sh"
+  },
+  {
+    "code": "603011",
+    "name": "合锻智能",
+    "market": "sh"
+  },
+  {
+    "code": "603015",
+    "name": "弘讯科技",
+    "market": "sh"
+  },
+  {
+    "code": "603061",
+    "name": "金海通",
+    "market": "sh"
+  },
+  {
+    "code": "603067",
+    "name": "振华股份",
+    "market": "sh"
+  },
+  {
+    "code": "603119",
+    "name": "浙江荣泰",
+    "market": "sh"
+  },
+  {
+    "code": "603267",
+    "name": "鸿远电子",
+    "market": "sh"
+  },
+  {
+    "code": "603283",
+    "name": "赛腾股份",
+    "market": "sh"
+  },
+  {
+    "code": "603290",
+    "name": "斯达半导",
+    "market": "sh"
+  },
+  {
+    "code": "603308",
+    "name": "应流股份",
+    "market": "sh"
+  },
+  {
+    "code": "603533",
+    "name": "掌阅科技",
+    "market": "sh"
+  },
+  {
+    "code": "603598",
+    "name": "引力传媒",
+    "market": "sh"
+  },
+  {
+    "code": "603601",
+    "name": "再升科技",
+    "market": "sh"
+  },
+  {
+    "code": "603619",
+    "name": "中曼石油",
+    "market": "sh"
+  },
+  {
+    "code": "603629",
+    "name": "利通电子",
+    "market": "sh"
+  },
+  {
+    "code": "603650",
+    "name": "彤程新材",
+    "market": "sh"
+  },
+  {
+    "code": "603667",
+    "name": "五洲新春",
+    "market": "sh"
+  },
+  {
+    "code": "603678",
+    "name": "火炬电子",
+    "market": "sh"
+  },
+  {
+    "code": "603698",
+    "name": "航天工程",
+    "market": "sh"
+  },
+  {
+    "code": "603757",
+    "name": "大元泵业",
+    "market": "sh"
+  },
+  {
+    "code": "603881",
+    "name": "数据港",
+    "market": "sh"
+  },
+  {
+    "code": "603986",
+    "name": "兆易创新",
+    "market": "sh"
+  },
+  {
+    "code": "603993",
+    "name": "洛阳钼业",
+    "market": "sh"
+  },
+  {
+    "code": "605598",
+    "name": "上海港湾",
+    "market": "sh"
+  },
+  {
+    "code": "688031",
+    "name": "星环科技-U",
+    "market": "sh"
+  },
+  {
+    "code": "688037",
+    "name": "芯源微",
+    "market": "sh"
+  },
+  {
+    "code": "688082",
+    "name": "盛美上海",
+    "market": "sh"
+  },
+  {
+    "code": "688118",
+    "name": "普元信息",
+    "market": "sh"
+  },
+  {
+    "code": "688160",
+    "name": "步科股份",
+    "market": "sh"
+  },
+  {
+    "code": "688195",
+    "name": "腾景科技",
+    "market": "sh"
+  },
+  {
+    "code": "688205",
+    "name": "德科立",
+    "market": "sh"
+  },
+  {
+    "code": "688222",
+    "name": "成都先导",
+    "market": "sh"
+  },
+  {
+    "code": "688258",
+    "name": "卓易信息",
+    "market": "sh"
+  },
+  {
+    "code": "688270",
+    "name": "ST臻镭",
+    "market": "sh"
+  },
+  {
+    "code": "688361",
+    "name": "中科飞测",
+    "market": "sh"
+  },
+  {
+    "code": "688385",
+    "name": "复旦微电",
+    "market": "sh"
+  },
+  {
+    "code": "688629",
+    "name": "华丰科技",
+    "market": "sh"
+  },
+  {
+    "code": "688668",
+    "name": "鼎通科技",
+    "market": "sh"
+  },
+  {
+    "code": "688676",
+    "name": "金盘科技",
+    "market": "sh"
+  },
+  {
+    "code": "688981",
+    "name": "中芯国际",
+    "market": "sh"
+  },
+  {
+    "code": "159919",
+    "name": "深证300ETF嘉实",
+    "market": "sz"
+  },
+  {
+    "code": "588000",
+    "name": "科创50ETF华夏",
+    "market": "sh"
+  }
+]
