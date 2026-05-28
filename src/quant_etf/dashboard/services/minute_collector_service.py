@@ -102,7 +102,6 @@ class MinuteCollectorService:
     def __init__(self):
         self._stop_event = threading.Event()
         self._timer: threading.Timer | None = None
-        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         """
@@ -146,12 +145,12 @@ class MinuteCollectorService:
 
     def _start_collect_thread(self) -> None:
         """启动采集线程"""
-        self._thread = threading.Thread(
+        thread = threading.Thread(
             target=self._collect_loop,
             daemon=True,
             name="minute-collector"
         )
-        self._thread.start()
+        thread.start()
 
     def _collect_loop(self) -> None:
         """采集循环：在窗口内每 60 秒采集一次"""
