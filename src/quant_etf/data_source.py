@@ -464,10 +464,10 @@ class ETFDataSource:
     def _load_minute_data_resampled(
         self, code: str, interval: BarInterval
     ) -> pd.DataFrame:
-        """从1分钟数据重采样为目标周期"""
-        from quant_etf.minute_data_manager import get_minute_bars_for_interval
+        """从1分钟数据重采样为目标周期（DuckDB 引擎）"""
+        from quant_etf.minute_resampler import resample_bars
 
-        df = get_minute_bars_for_interval(code, interval, count=5000)
+        df = resample_bars(code, interval, count=5000)
         if df.empty:
             raise RuntimeError(
                 f"No minute data for {code} at {interval.label} interval. "

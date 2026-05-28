@@ -296,46 +296,10 @@ def get_minute_bars_for_interval(
     code: str, interval: BarInterval, count: int = 200
 ) -> pd.DataFrame:
     """
-    获取指定代码的任意周期K线数据（从1分钟数据实时重采样）
-    :param code: 标的代码
-    :param interval: BarInterval 周期配置（不能是日线）
-    :param count: 需要的bar数量
-    :return: DataFrame，索引为time，列为 open/high/low/close/volume/amount
+    [DEPRECATED] 请使用 quant_etf.minute_resampler.resample_bars
     """
-    if interval.is_daily:
-        raise ValueError("get_minute_bars_for_interval does not support daily interval")
-
-    conn = _get_pg_conn()
-    cur = conn.cursor()
-
-    # Fetch enough 1-min bars to resample into `count` target bars.
-    # Each target bar may need up to interval.bars_per_day 1-min bars,
-    # but we also need some extra to account for gaps.
-    fetch_count = count * interval.bars_per_day + interval.bars_per_day
-
-    cur.execute("""
-        SELECT time, open, high, low, close, volume, amount
-        FROM minute_bars
-        WHERE code = %s
-        ORDER BY time DESC
-        LIMIT %s
-    """, [code, fetch_count])
-
-    rows = cur.fetchall()
-    if not rows:
-        return pd.DataFrame()
-
-    columns = [desc[0] for desc in cur.description]
-    df_1m = pd.DataFrame(rows, columns=columns)
-    df_1m = df_1m.sort_values("time").reset_index(drop=True)
-
-    # Resample on-the-fly
-    df = resample_to_interval(df_1m, interval)
-
-    if df.empty:
-        return pd.DataFrame()
-
-    return df
+    from quant_etf.minute_resampler import resample_bars
+    return resample_bars(code, interval, count)
 
 
 # ============================================================
