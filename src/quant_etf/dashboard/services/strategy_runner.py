@@ -69,6 +69,18 @@ def _fix_names(records: list[dict]) -> None:
             r["name"] = name_map[code]
 
 
+
+def _build_column_labels(bar_interval: str) -> dict[str, str]:
+    """根据周期构建列标题映射"""
+    from quant_etf.bar_interval import get_interval
+    bi = get_interval(bar_interval)
+    return {
+        "p60": bi.unit_label(60),
+        "p20": bi.unit_label(20),
+        "p10": bi.unit_label(10),
+        "p5": bi.unit_label(5),
+    }
+
 async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_interval: str = "1d") -> str:
     """异步执行策略，返回 run_id"""
     if run_id is None:
@@ -80,6 +92,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
         "bar_interval": bar_interval,
         "started_at": datetime.now().isoformat(),
         "progress": 0,
+        "column_labels": _build_column_labels(bar_interval),
     }
 
     # 在进入线程前捕获主事件循环，供 SSE 广播使用
@@ -121,15 +134,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
 
             _running_tasks[run_id]["status"] = "complete"
 
-            # Inject period-aware column labels
-            from quant_etf.bar_interval import get_interval
-            bi = get_interval(bar_interval)
-            _running_tasks[run_id]["column_labels"] = {
-                "p60": bi.unit_label(60),
-                "p20": bi.unit_label(20),
-                "p10": bi.unit_label(10),
-                "p5": bi.unit_label(5),
-            }
+            # column_labels already set at task init
             _running_tasks[run_id]["progress"] = 100
             _running_tasks[run_id]["finished_at"] = datetime.now().isoformat()
 
