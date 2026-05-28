@@ -155,35 +155,41 @@
                 document.getElementById('drilldownTitle').textContent =
                     data.code + ' ' + name + ' - ' + data.label + ' 累计涨幅';
 
-                if (chartInstance) {
-                    chartInstance.dispose();
-                }
-                chartInstance = echarts.init(document.getElementById('drilldownChart'));
-
-                const pctValues = data.values.map(v => (v * 100).toFixed(2));
-                chartInstance.setOption({
-                    tooltip: {
-                        trigger: 'axis',
-                        formatter: function(params) {
-                            const p = params[0];
-                            return p.name + '<br/>' + p.seriesName + ': ' + p.value + '%';
-                        }
-                    },
-                    xAxis: { type: 'category', data: data.dates, axisLabel: { rotate: 45 } },
-                    yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
-                    series: [{
-                        name: '累计涨幅',
-                        type: 'line',
-                        data: pctValues,
-                        smooth: true,
-                        lineStyle: { width: 2 },
-                        areaStyle: { opacity: 0.1 }
-                    }],
-                    grid: { left: 60, right: 20, top: 20, bottom: 60 }
-                });
-
+                const chartEl = document.getElementById('drilldownChart');
                 const modal = new bootstrap.Modal(document.getElementById('drilldownModal'));
                 modal.show();
+
+                // Wait for modal transition to finish so container has real dimensions
+                document.getElementById('drilldownModal').addEventListener('shown.bs.modal', function onShown() {
+                    document.getElementById('drilldownModal').removeEventListener('shown.bs.modal', onShown);
+
+                    if (chartInstance) {
+                        chartInstance.dispose();
+                    }
+                    chartInstance = echarts.init(chartEl);
+
+                    const pctValues = data.values.map(v => (v * 100).toFixed(2));
+                    chartInstance.setOption({
+                        tooltip: {
+                            trigger: 'axis',
+                            formatter: function(params) {
+                                const p = params[0];
+                                return p.name + '<br/>' + p.seriesName + ': ' + p.value + '%';
+                            }
+                        },
+                        xAxis: { type: 'category', data: data.dates, axisLabel: { rotate: 45 } },
+                        yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+                        series: [{
+                            name: '累计涨幅',
+                            type: 'line',
+                            data: pctValues,
+                            smooth: true,
+                            lineStyle: { width: 2 },
+                            areaStyle: { opacity: 0.1 }
+                        }],
+                        grid: { left: 60, right: 20, top: 20, bottom: 60 }
+                    });
+                });
             })
             .catch(err => { alert('加载明细数据失败: ' + err); });
     };
