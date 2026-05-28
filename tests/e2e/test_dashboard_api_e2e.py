@@ -27,14 +27,14 @@ def mock_dashboard_app(tmp_path):
     @app.get("/api/strategy/etf")
     async def strategy_etf():
         return [
-            {"code": "510050", "score": 0.15, "r60": 0.12, "r20": 0.08, "r10": 0.05, "r5": 0.03},
-            {"code": "510310", "score": 0.12, "r60": 0.10, "r20": 0.07, "r10": 0.04, "r5": 0.02},
+            {"code": "510050", "score": 0.15, "p60": 0.12, "p20": 0.08, "p10": 0.05, "p5": 0.03},
+            {"code": "510310", "score": 0.12, "p60": 0.10, "p20": 0.07, "p10": 0.04, "p5": 0.02},
         ]
 
     @app.get("/api/strategy/short")
     async def strategy_short():
         return [
-            {"code": "002202", "score": 0.25, "r5": 0.05, "trend_ok": True},
+            {"code": "002202", "score": 0.25, "p5": 0.05, "trend_ok": True},
         ]
 
     @app.get("/api/strategy/mid")

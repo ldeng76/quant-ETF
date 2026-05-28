@@ -112,10 +112,10 @@ class BaseTask(ABC):
             df = df[cols]
         
         # 涨幅和权重字段转换为百分比格式（保留2位小数的百分比字符串）
-        # ETF策略字段：r60, r20, r10, r5, target_weight
-        # Short策略字段：score, r60, r20, r10, r5
-        # Mid策略字段：score, drawdown_from_120d_high, bounce_from_20d_low, r20, r10, r5
-        pct_cols = ["r60", "r20", "r10", "r5", "target_weight", "score", 
+        # ETF策略字段：p60, p20, p10, p5, target_weight
+        # Short策略字段：score, p60, p20, p10, p5
+        # Mid策略字段：score, drawdown_from_120d_high, bounce_from_20d_low, p20, p10, p5
+        pct_cols = ["p60", "p20", "p10", "p5", "target_weight", "score",
                     "drawdown_from_120d_high", "bounce_from_20d_low"]
         for col in pct_cols:
             if col in df.columns:
@@ -262,18 +262,18 @@ class ETFTask(BaseTask):
         for code, weight in final_portfolio.items():
             if weight > 0:
                 original_item = ranked_map.get(code)
-                r60 = original_item.r60 if original_item else 0.0
-                r20 = original_item.r20 if original_item else 0.0
-                r10 = original_item.r10 if original_item else 0.0
-                r5 = original_item.r5 if original_item else 0.0
+                p60 = original_item.p60 if original_item else 0.0
+                p20 = original_item.p20 if original_item else 0.0
+                p10 = original_item.p10 if original_item else 0.0
+                p5 = original_item.p5 if original_item else 0.0
                 
                 item = ETFScore(
                     code=code,
                     score=weight,
-                    r60=r60,
-                    r20=r20,
-                    r10=r10,
-                    r5=r5,
+                    p60=p60,
+                    p20=p20,
+                    p10=p10,
+                    p5=p5,
                 )
                 output_results.append((item, etf_name_map.get(code, "Unknown"), weight))
 
@@ -351,7 +351,7 @@ class ShortTermStockTask(BaseTask):
         stock_name = name_map.get(result.code, "Unknown")
         return (
             f"Rank: {result.code} ({stock_name}) | Score: {result.score:.4f} "
-            f"(R5: {result.r5:.2%}, R10: {result.r10:.2%}, R20: {result.r20:.2%}, "
+            f"(P5: {result.p5:.2%}, P10: {result.p10:.2%}, P20: {result.p20:.2%}, "
             f"VolRatio: {result.volume_ratio_1d_20d:.2f}, TrendOK: {result.trend_ok})"
         )
 
@@ -414,7 +414,7 @@ class MidTermReboundTask(BaseTask):
             f"Rank: {result.code} ({stock_name}) | Score: {result.score:.4f} "
             f"(Drawdown120: {result.drawdown_from_120d_high:.2%}, "
             f"Bounce20: {result.bounce_from_20d_low:.2%}, "
-            f"R5: {result.r5:.2%}, R10: {result.r10:.2%}, R20: {result.r20:.2%}, "
+            f"P5: {result.p5:.2%}, P10: {result.p10:.2%}, P20: {result.p20:.2%}, "
             f"VolRatio: {result.volume_ratio_1d_20d:.2f}, "
             f"Stabilized: {result.stabilization_ok}, ReboundOK: {result.rebound_ok})"
         )

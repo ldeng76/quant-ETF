@@ -153,20 +153,20 @@ class TestGenerateTdxFormulaFileE2E:
         filepath = output_dir / "TDX_Formula_Momentum.txt"
 
         # Generate formula content manually to verify
-        w_r60 = MOMENTUM_WEIGHTS.get("r60", 0.4)
-        w_r20 = MOMENTUM_WEIGHTS.get("r20", 0.3)
-        w_r10 = MOMENTUM_WEIGHTS.get("r10", 0.2)
-        w_r5 = MOMENTUM_WEIGHTS.get("r5", 0.1)
+        w_p60 = MOMENTUM_WEIGHTS.get("p60", 0.4)
+        w_p20 = MOMENTUM_WEIGHTS.get("p20", 0.3)
+        w_p10 = MOMENTUM_WEIGHTS.get("p10", 0.2)
+        w_p5 = MOMENTUM_WEIGHTS.get("p5", 0.1)
 
-        formula = f"R60 := (C - REF(C, 60)) / REF(C, 60);\n"
-        formula += f"MOM_SCORE: (R60 * {w_r60} + R20 * {w_r20} + R10 * {w_r10} + R5 * {w_r5}) * 100;\n"
+        formula = f"P60 := (C - REF(C, 60)) / REF(C, 60);\n"
+        formula += f"MOM_SCORE: (P60 * {w_p60} + P20 * {w_p20} + P10 * {w_p10} + P5 * {w_p5}) * 100;\n"
 
         filepath.write_text(formula)
         content = filepath.read_text()
 
         # Verify weights are present
-        assert str(w_r60) in content
-        assert str(w_r20) in content
+        assert str(w_p60) in content
+        assert str(w_p20) in content
 
     def test_formula_has_reference_lines(self, tmp_path):
         """Formula should include zero and risk reference lines."""

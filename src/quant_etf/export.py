@@ -77,24 +77,24 @@ def generate_tdx_formula_file():
     """
     生成通达信副图指标公式的文本文件，方便用户复制。
     """
-    w_r60 = MOMENTUM_WEIGHTS.get("r60", 0.4)
-    w_r20 = MOMENTUM_WEIGHTS.get("r20", 0.3)
-    w_r10 = MOMENTUM_WEIGHTS.get("r10", 0.2)
-    w_r5 = MOMENTUM_WEIGHTS.get("r5", 0.1)
+    w_p60 = MOMENTUM_WEIGHTS.get("p60", 0.4)
+    w_p20 = MOMENTUM_WEIGHTS.get("p20", 0.3)
+    w_p10 = MOMENTUM_WEIGHTS.get("p10", 0.2)
+    w_p5 = MOMENTUM_WEIGHTS.get("p5", 0.1)
 
     formula_content = f"""
 {{Quant-ETF 动量综合评分指标}}
 {{参数设置: 无}}
 
 {{计算各周期涨幅}}
-R60 := (C - REF(C, 60)) / REF(C, 60);
-R20 := (C - REF(C, 20)) / REF(C, 20);
-R10 := (C - REF(C, 10)) / REF(C, 10);
-R5  := (C - REF(C, 5)) / REF(C, 5);
+P60 := (C - REF(C, 60)) / REF(C, 60);
+P20 := (C - REF(C, 20)) / REF(C, 20);
+P10 := (C - REF(C, 10)) / REF(C, 10);
+P5  := (C - REF(C, 5)) / REF(C, 5);
 
 {{计算加权得分}}
-{{权重: R60({w_r60}), R20({w_r20}), R10({w_r10}), R5({w_r5})}}
-MOM_SCORE: (R60 * {w_r60} + R20 * {w_r20} + R10 * {w_r10} + R5 * {w_r5}) * 100, COLORRED, LINETHICK2;
+{{权重: P60({w_p60}), P20({w_p20}), P10({w_p10}), P5({w_p5})}}
+MOM_SCORE: (P60 * {w_p60} + P20 * {w_p20} + P10 * {w_p10} + P5 * {w_p5}) * 100, COLORRED, LINETHICK2;
 
 {{绘制参考线}}
 ZERO_LINE: 0, COLORGRAY, DOTLINE;

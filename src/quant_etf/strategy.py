@@ -11,20 +11,20 @@ from quant_etf.conf import MOMENTUM_WEIGHTS
 class ETFScore:
     code: str
     score: float
-    r60: float
-    r20: float
-    r10: float
-    r5: float
+    p60: float
+    p20: float
+    p10: float
+    p5: float
     # 可以添加更多字段，如排名等
 
 @dataclass
 class StockScore:
     code: str
     score: float
-    r60: float
-    r20: float
-    r10: float
-    r5: float
+    p60: float
+    p20: float
+    p10: float
+    p5: float
     volume_ratio_1d_20d: float
     trend_ok: bool
 
@@ -34,9 +34,9 @@ class ReboundStockScore:
     score: float
     drawdown_from_120d_high: float
     bounce_from_20d_low: float
-    r20: float
-    r10: float
-    r5: float
+    p20: float
+    p10: float
+    p5: float
     volume_ratio_1d_20d: float
     stabilization_ok: bool
     rebound_ok: bool
@@ -95,10 +95,10 @@ class StrategyEngine:
         r5 = (current_price - p5) / p5
 
         return {
-            "r60": r60,
-            "r20": r20,
-            "r10": r10,
-            "r5": r5
+            "p60": r60,
+            "p20": r20,
+            "p10": r10,
+            "p5": r5
         }
 
     def normalize_scores(self, scores: List[ETFScore]) -> List[ETFScore]:
@@ -128,19 +128,19 @@ class StrategyEngine:
             # 这样可以避免某个极端涨幅扭曲结果。
             # 为保持简单，第一版先用原始涨幅加权。
             final_score = (
-                returns["r60"] * self.weights["r60"] +
-                returns["r20"] * self.weights["r20"] +
-                returns["r10"] * self.weights["r10"] +
-                returns["r5"] * self.weights["r5"]
+                returns["p60"] * self.weights["p60"] +
+                returns["p20"] * self.weights["p20"] +
+                returns["p10"] * self.weights["p10"] +
+                returns["p5"] * self.weights["p5"]
             )
 
             scores.append(ETFScore(
                 code=code,
                 score=final_score,
-                r60=returns["r60"],
-                r20=returns["r20"],
-                r10=returns["r10"],
-                r5=returns["r5"]
+                p60=returns["p60"],
+                p20=returns["p20"],
+                p10=returns["p10"],
+                p5=returns["p5"]
             ))
 
         # 按分数降序排列
@@ -203,10 +203,10 @@ class StrategyEngine:
             volume_ratio = float(vol_last / vol20)
 
         momentum_score = (
-            returns["r60"] * self.weights["r60"] +
-            returns["r20"] * self.weights["r20"] +
-            returns["r10"] * self.weights["r10"] +
-            returns["r5"] * self.weights["r5"]
+            returns["p60"] * self.weights["p60"] +
+            returns["p20"] * self.weights["p20"] +
+            returns["p10"] * self.weights["p10"] +
+            returns["p5"] * self.weights["p5"]
         )
 
         final_score = float(momentum_score + 0.03 * (volume_ratio - 1.0) + 0.02 * (1.0 if trend_ok else 0.0))
@@ -214,10 +214,10 @@ class StrategyEngine:
         return StockScore(
             code=code,
             score=final_score,
-            r60=returns["r60"],
-            r20=returns["r20"],
-            r10=returns["r10"],
-            r5=returns["r5"],
+            p60=returns["p60"],
+            p20=returns["p20"],
+            p10=returns["p10"],
+            p5=returns["p5"],
             volume_ratio_1d_20d=volume_ratio,
             trend_ok=trend_ok,
         )
@@ -284,7 +284,7 @@ class StrategyEngine:
         if not returns:
             return None
 
-        if returns["r5"] <= 0 or returns["r10"] < -0.01:
+        if returns["p5"] <= 0 or returns["p10"] < -0.01:
             return None
 
         ma5 = float(close_prices.rolling(window=w5).mean().iloc[-1])
@@ -301,8 +301,8 @@ class StrategyEngine:
         score = (
             (min(abs(drawdown), 0.6)) * 0.35
             + (min(bounce_from_low, 0.6)) * 0.40
-            + max(returns["r5"], 0.0) * 0.15
-            + max(returns["r10"], 0.0) * 0.05
+            + max(returns["p5"], 0.0) * 0.15
+            + max(returns["p10"], 0.0) * 0.05
             + max(volume_ratio - 1.0, 0.0) * 0.05
         )
 
@@ -316,9 +316,9 @@ class StrategyEngine:
             score=float(score),
             drawdown_from_120d_high=float(drawdown),
             bounce_from_20d_low=float(bounce_from_low),
-            r20=float(returns["r20"]),
-            r10=float(returns["r10"]),
-            r5=float(returns["r5"]),
+            p20=float(returns["p20"]),
+            p10=float(returns["p10"]),
+            p5=float(returns["p5"]),
             volume_ratio_1d_20d=float(volume_ratio),
             stabilization_ok=bool(stabilization_ok),
             rebound_ok=bool(rebound_ok),

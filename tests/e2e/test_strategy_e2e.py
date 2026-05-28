@@ -45,20 +45,20 @@ class TestETFMomentumStrategyE2E:
         engine = StrategyEngine()
         returns = engine.calculate_returns(strong_etf_df)
 
-        assert "r60" in returns
-        assert "r20" in returns
-        assert "r10" in returns
-        assert "r5" in returns
+        assert "p60" in returns
+        assert "p20" in returns
+        assert "p10" in returns
+        assert "p5" in returns
         # Strong uptrend: all returns should be positive
-        assert returns["r60"] > 0
-        assert returns["r20"] > 0
+        assert returns["p60"] > 0
+        assert returns["p20"] > 0
 
     def test_short_horizon_weights_favor_rebound(self, rebound_etf_df, declining_etf_df):
         """
-        With short-horizon weights (r5:0.4, r10:0.3), a rebound ETF
+        With short-horizon weights (p5:0.4, p10:0.3), a rebound ETF
         should score above a continuously declining one.
         """
-        weights = {"r60": 0.1, "r20": 0.2, "r10": 0.3, "r5": 0.4}
+        weights = {"p60": 0.1, "p20": 0.2, "p10": 0.3, "p5": 0.4}
         engine = StrategyEngine(weights=weights)
         data = {
             "510880": rebound_etf_df,
@@ -71,8 +71,8 @@ class TestETFMomentumStrategyE2E:
 
     def test_custom_weights_change_ranking(self, mixed_etf_pool):
         """Long-term weights should produce different ranking than short-term weights."""
-        long_weights = {"r60": 0.5, "r20": 0.3, "r10": 0.15, "r5": 0.05}
-        short_weights = {"r60": 0.1, "r20": 0.2, "r10": 0.3, "r5": 0.4}
+        long_weights = {"p60": 0.5, "p20": 0.3, "p10": 0.15, "p5": 0.05}
+        short_weights = {"p60": 0.1, "p20": 0.2, "p10": 0.3, "p5": 0.4}
 
         engine_long = StrategyEngine(weights=long_weights)
         engine_short = StrategyEngine(weights=short_weights)

@@ -28,6 +28,14 @@ _running_tasks: dict[str, dict] = {}
 _name_map_cache: dict[str, str] | None = None
 
 
+def _get_csv_path(strategy_name: str, bar_interval: str, date_str: str) -> Path:
+    """根据周期构造 CSV 路径。日线保持原路径，分钟周期加后缀。"""
+    if bar_interval == "1d":
+        return PROJECT_ROOT / "data" / "results" / date_str / f"{strategy_name}.csv"
+    else:
+        return PROJECT_ROOT / "data" / "results" / date_str / f"{strategy_name}_{bar_interval}.csv"
+
+
 def _load_name_map() -> dict[str, str]:
     """从 data/meta/stock_code_name.json 加载 code→name 映射，用于修正 CSV 中的 Unknown"""
     global _name_map_cache
@@ -61,7 +69,7 @@ def _fix_names(records: list[dict]) -> None:
             r["name"] = name_map[code]
 
 
-async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
+async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_interval: str = "1d") -> str:
     """异步执行策略，返回 run_id"""
     if run_id is None:
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
@@ -69,6 +77,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
     _running_tasks[run_id] = {
         "status": "running",
         "strategy": strategy_name,
+        "bar_interval": bar_interval,
         "started_at": datetime.now().isoformat(),
         "progress": 0,
     }
@@ -81,7 +90,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
             intraday = is_intraday()
             if intraday:
                 logger.info(f"Strategy {strategy_name} running in INTRADAY mode")
-            task = TaskRegistry.get_task(strategy_name, intraday=intraday)
+            task = TaskRegistry.get_task(strategy_name, intraday=intraday, bar_interval=bar_interval)
             if not task:
                 raise ValueError(f"Unknown strategy: {strategy_name}")
 
@@ -97,7 +106,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
 
             # 读取结果
             today = datetime.now().strftime("%Y-%m-%d")
-            csv_path = PROJECT_ROOT / "data" / "results" / today / f"{strategy_name}.csv"
+            csv_path = _get_csv_path(strategy_name, bar_interval, today)
             if csv_path.exists():
                 df = pd.read_csv(csv_path, dtype={"code": str})
                 records = df.to_dict("records")
@@ -111,16 +120,26 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
                 _running_tasks[run_id]["count"] = 0
 
             _running_tasks[run_id]["status"] = "complete"
+
+            # Inject period-aware column labels
+            from quant_etf.bar_interval import get_interval
+            bi = get_interval(bar_interval)
+            _running_tasks[run_id]["column_labels"] = {
+                "p60": bi.unit_label(60),
+                "p20": bi.unit_label(20),
+                "p10": bi.unit_label(10),
+                "p5": bi.unit_label(5),
+            }
             _running_tasks[run_id]["progress"] = 100
             _running_tasks[run_id]["finished_at"] = datetime.now().isoformat()
 
             # 清除历史汇总缓存，确保新结果立即可见
-            clear_history_summary_cache(strategy_name)
+            clear_history_summary_cache(strategy_name, bar_interval)
 
             # --- 告警引擎集成：对比上次结果，触发告警 ---
             try:
                 records_for_alert = _running_tasks[run_id].get("result", [])
-                prev_records = _load_prev_strategy_result(strategy_name)
+                prev_records = _load_prev_strategy_result(strategy_name, bar_interval)
                 if records_for_alert and prev_records:
                     triggered = alert_engine.check(records_for_alert, prev_records)
                     if triggered:
@@ -149,9 +168,16 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
                 logger.warning(f"Alert engine check failed for {strategy_name}: {alert_err}")
 
         except Exception as e:
+            error_msg = str(e)
+            # 将常见技术错误转化为用户友好的中文提示
+            if "No minute data" in error_msg and "minute-backfill" in error_msg:
+                error_msg = "数据库中没有分钟K线数据。请先在终端运行 `quant-etf minute-backfill` 命令回填分钟数据，然后再试。"
+            elif "Unknown strategy" in error_msg:
+                error_msg = f"未知策略: {error_msg.split(':')[-1].strip()}"
+
             logger.error(f"Strategy {strategy_name} failed: {e}")
             _running_tasks[run_id]["status"] = "error"
-            _running_tasks[run_id]["error"] = str(e)
+            _running_tasks[run_id]["error"] = error_msg
             _running_tasks[run_id]["progress"] = -1
 
             # 通过 SSE 广播错误事件（与 scheduler.py 一致）
@@ -175,7 +201,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None) -> str:
     return run_id
 
 
-def _load_prev_strategy_result(strategy_name: str) -> list[dict]:
+def _load_prev_strategy_result(strategy_name: str, bar_interval: str = "1d") -> list[dict]:
     """加载上一次策略执行结果，用于告警对比"""
     try:
         import pandas as pd
@@ -189,7 +215,7 @@ def _load_prev_strategy_result(strategy_name: str) -> list[dict]:
             return []
         # 跳过今天（当前结果），取上一次
         for d in date_dirs:
-            csv_path = d / f"{strategy_name}.csv"
+            csv_path = _get_csv_path(strategy_name, bar_interval, d.name)
             if csv_path.exists():
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 if d.name == today_str:
@@ -213,13 +239,88 @@ def list_available_strategies() -> list[dict]:
     return TaskRegistry.list_tasks()
 
 
-def get_sell_signals(strategy_name: str = "etf") -> list[dict]:
+# ============================================================
+# 策略结果 JSON 导出（小程序用）
+# ============================================================
+
+# 百分比字段列表
+_PERCENT_FIELDS = ("p60", "p20", "p10", "p5", "target_weight", "score",
+                   "drawdown_from_120d_high", "bounce_from_20d_low")
+
+
+def _parse_value(val):
+    """解析 CSV 中的值：百分比字符串转 float，NaN/空转 None"""
+    if val is None:
+        return None
+    if isinstance(val, float):
+        import math
+        if math.isnan(val):
+            return None
+        return val
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", ""):
+        return None
+    if s.endswith("%"):
+        try:
+            return float(s.rstrip("%"))
+        except ValueError:
+            return None
+    # 布尔字符串
+    if s in ("True", "true"):
+        return True
+    if s in ("False", "false"):
+        return False
+    # 普通数字
+    try:
+        return float(s)
+    except ValueError:
+        return val
+
+
+def get_today_results(strategy_name: str, bar_interval: str = "1d") -> dict:
+    """读取最近可用的策略结果 CSV，返回解析后的 JSON 数据。
+
+    优先取今天，没有则向前最多查 7 天。
+    """
+    results_dir = PROJECT_ROOT / "data" / "results"
+    if not results_dir.exists():
+        return {"date": None, "strategy": strategy_name, "count": 0, "records": []}
+
+    today = datetime.now().date()
+    for i in range(8):  # 0=今天, 最多往前7天
+        target = today - timedelta(days=i)
+        date_str = target.strftime("%Y-%m-%d")
+        csv_path = _get_csv_path(strategy_name, bar_interval, date_str)
+        if csv_path.exists():
+            break
+    else:
+        return {"date": None, "strategy": strategy_name, "count": 0, "records": []}
+
+    df = pd.read_csv(csv_path, dtype={"code": str})
+    records = [r for r in df.to_dict("records") if r.get("code")]
+    _fix_names(records)
+
+    # 解析百分比字段
+    for r in records:
+        for key in _PERCENT_FIELDS:
+            if key in r:
+                r[key] = _parse_value(r[key])
+
+    return {
+        "date": date_str,
+        "strategy": strategy_name,
+        "count": len(records),
+        "records": records,
+    }
+
+
+def get_sell_signals(strategy_name: str = "etf", bar_interval: str = "1d") -> list[dict]:
     """检测今日掉榜的标的，返回卖出信号列表。
 
     严格模式：只在最新结果日掉榜的标的才触发卖出信号。
     """
     summary = get_history_summary(
-        strategy_name=strategy_name, days=30, auto_backfill=False
+        strategy_name=strategy_name, days=30, auto_backfill=False, bar_interval=bar_interval
     )
     if not summary:
         return []
@@ -245,9 +346,9 @@ def get_sell_signals(strategy_name: str = "etf") -> list[dict]:
 _history_cache: dict[str, tuple] = {}
 
 
-def clear_history_summary_cache(strategy_name: str = "etf") -> None:
+def clear_history_summary_cache(strategy_name: str = "etf", bar_interval: str = "1d") -> None:
     """清除指定策略的历史汇总缓存"""
-    keys_to_remove = [k for k in _history_cache if k.startswith(f"{strategy_name}_")]
+    keys_to_remove = [k for k in _history_cache if k.startswith(f"{strategy_name}_") and f"_{bar_interval}" in k]
     for k in keys_to_remove:
         del _history_cache[k]
 
@@ -255,7 +356,8 @@ def clear_history_summary_cache(strategy_name: str = "etf") -> None:
 def get_history_summary(
     strategy_name: str = "etf",
     days: int = 30,
-    auto_backfill: bool = True
+    auto_backfill: bool = True,
+    bar_interval: str = "1d"
 ) -> list[dict]:
     """获取最近N天策略历史标的汇总
     
@@ -276,7 +378,7 @@ def get_history_summary(
             logger.warning(f"Auto-backfill failed for {strategy_name}: {e}")
             # 补算失败不影响返回现有数据
 
-    cache_key = f"{strategy_name}_{days}"
+    cache_key = f"{strategy_name}_{days}_{bar_interval}"
     if cache_key in _history_cache:
         ts, data = _history_cache[cache_key]
         if (datetime.now() - ts).total_seconds() < 300:  # 5分钟TTL
@@ -309,7 +411,7 @@ def get_history_summary(
     code_names: dict[str, str] = {}
 
     for date_dir in all_date_dirs:
-        csv_path = date_dir / f"{strategy_name}.csv"
+        csv_path = _get_csv_path(strategy_name, bar_interval, date_dir.name)
         if not csv_path.exists():
             continue
         df = pd.read_csv(csv_path, dtype={"code": str})

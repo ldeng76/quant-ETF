@@ -16,13 +16,22 @@ class BarInterval:
     tdx_category_direct: Optional[int] = None
     is_daily: bool = False
 
+    def unit_label(self, n_bars: int) -> str:
+        """返回 n_bars 根 K 线的中文描述"""
+        if self.is_daily:
+            return f"{n_bars}日"
+        days = n_bars / self.bars_per_day
+        if days == int(days):
+            return f"{n_bars}根({int(days)}天)"
+        return f"{n_bars}根({days:.1f}天)"
+
 
 INTERVALS: dict[str, BarInterval] = {
     "1d": BarInterval("1d", "日线", "1D", 1, 9, is_daily=True),
-    "5m": BarInterval("5m", "5分钟", "5T", 48, 8, tdx_category_direct=0),
-    "15m": BarInterval("15m", "15分钟", "15T", 16, 8, tdx_category_direct=1),
-    "30m": BarInterval("30m", "30分钟", "30T", 8, 8, tdx_category_direct=2),
-    "60m": BarInterval("60m", "60分钟", "60T", 4, 8, tdx_category_direct=3),
+    "5m": BarInterval("5m", "5分钟", "5min", 48, 8, tdx_category_direct=0),
+    "15m": BarInterval("15m", "15分钟", "15min", 16, 8, tdx_category_direct=1),
+    "30m": BarInterval("30m", "30分钟", "30min", 8, 8, tdx_category_direct=2),
+    "60m": BarInterval("60m", "60分钟", "60min", 4, 8, tdx_category_direct=3),
 }
 
 DEFAULT_INTERVAL = "1d"

@@ -4,8 +4,9 @@ from pathlib import Path
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-# 数据目录
-DATA_DIR = PROJECT_ROOT / "data"
+# 数据目录（支持环境变量覆盖）
+_DATA_DIR_ENV = os.getenv("DATA_DIR")
+DATA_DIR = Path(_DATA_DIR_ENV) if _DATA_DIR_ENV else PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 # 日志目录
@@ -131,19 +132,19 @@ TDX_CUSTOM_BLOCK_NAME = "高分etf"
 # 策略权重配置 (可在此处调整)
 # 这种调整适合 市场热点轮动极快、趋势持续性较差 的震荡市或牛市初期，此时“追涨杀跌”的效率可能高于“捂股不动”。但在趋势明确的单边行情中，可能会频繁丢掉稳健上涨的长期牛股。
 MOMENTUM_WEIGHTS = {
-    "r60": 0.1,
-    "r20": 0.2,
-    "r10": 0.3,
-    "r5": 0.4
+    "p60": 0.1,
+    "p20": 0.2,
+    "p10": 0.3,
+    "p5": 0.4
 }
 
 # 持仓数量配置
 TOP_N = 15
 
 MOMENTUM_WEIGHTS_bak = {
-    "r60": 0.4,
-    "r20": 0.3,
-    "r10": 0.2,
-    "r5": 0.1
+    "p60": 0.4,
+    "p20": 0.3,
+    "p10": 0.2,
+    "p5": 0.1
 }
 # 典型的 中长期趋势跟踪策略 。 适合：趋势明显的单边牛市

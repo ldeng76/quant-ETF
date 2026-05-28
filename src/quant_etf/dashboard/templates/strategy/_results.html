@@ -1,6 +1,6 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span>执行结果: {{ status.title or status.strategy }} ({{ run_id }})</span>
+        <span>执行结果: {{ status.title or status.strategy }}{% if status.bar_interval and status.bar_interval != '1d' %} [{{ {'15m': '15分钟', '30m': '30分钟', '60m': '60分钟'}.get(status.bar_interval, status.bar_interval) }}]{% endif %} ({{ run_id }})</span>
         <span class="badge {{ 'bg-success' if status.status == 'complete' else 'bg-warning' }}">
             {{ status.status }}
         </span>
@@ -47,10 +47,10 @@
                                 'code': '代码',
                                 'name': '名称',
                                 'score': '得分',
-                                'r60': '60日涨幅',
-                                'r20': '20日涨幅',
-                                'r10': '10日涨幅',
-                                'r5': '5日涨幅',
+                                'p60': status.column_labels.get('p60', 'p60'),
+                                'p20': status.column_labels.get('p20', 'p20'),
+                                'p10': status.column_labels.get('p10', 'p10'),
+                                'p5': status.column_labels.get('p5', 'p5'),
                                 'target_weight': '目标权重',
                                 'volume_ratio_1d_20d': '成交量比率(1d/20d)',
                                 'trend_ok': '趋势达标',
@@ -83,7 +83,7 @@
         {# 卖出信号区块 #}
         {% if status.status == 'complete' %}
         <div id="sell-signals-container"
-             hx-get="/api/strategy/sell-signals?strategy=etf"
+             hx-get="/api/strategy/sell-signals?strategy=etf&bar_interval={{ status.bar_interval or '1d' }}"
              hx-trigger="load"
              hx-indicator="#sell-spinner">
             <div id="sell-spinner" class="htmx-indicator text-center py-2">
@@ -97,7 +97,7 @@
         {% if status.status == 'complete' %}
         <hr>
         <div id="history-summary-container"
-             hx-get="/api/strategy/history-summary?strategy=etf&days=30"
+             hx-get="/api/strategy/history-summary?strategy=etf&days=30&bar_interval={{ status.bar_interval or '1d' }}"
              hx-trigger="load"
              hx-indicator="#history-spinner">
             <div id="history-spinner" class="htmx-indicator text-center py-2">

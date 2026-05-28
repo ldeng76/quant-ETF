@@ -24,10 +24,10 @@ def test_calculate_returns():
     
     returns = engine.calculate_returns(df)
     
-    assert returns["r60"] > 0
-    assert returns["r20"] > 0
-    assert returns["r10"] > 0
-    assert returns["r5"] > 0
+    assert returns["p60"] > 0
+    assert returns["p20"] > 0
+    assert returns["p10"] > 0
+    assert returns["p5"] > 0
     
     # 验证计算逻辑 (大约值)
     # 最后一天的价格是 200
@@ -40,7 +40,7 @@ def test_calculate_returns():
     # r60 = (200 - 139.39) / 139.39 = 0.4348
     
     # 我们只验证它计算出了数值，且数值合理
-    assert 0.3 < returns["r60"] < 0.5
+    assert 0.3 < returns["p60"] < 0.5
 
 def test_calculate_returns_insufficient_data():
     engine = StrategyEngine()
