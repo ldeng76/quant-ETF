@@ -116,6 +116,23 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
             task.run()
             _running_tasks[run_id]["task_ref"] = task
 
+            # 存储大盘评估结果
+            regime = getattr(task, "_regime", None)
+            if regime:
+                from quant_etf.conf import INDEX_WEIGHTS
+                index_names = {"510050": "沪深300", "159919": "深证300", "159949": "创业板50", "588000": "科创50"}
+                _running_tasks[run_id]["market_regime"] = {
+                    "market_score": round(regime.market_score * 100, 2),
+                    "median_score": round(regime.median_score * 100, 2),
+                    "mode": regime.mode,
+                    "top_n": regime.top_n,
+                    "risk_discount": regime.risk_discount,
+                    "index_scores": {
+                        index_names.get(c, c): round(s * 100, 2)
+                        for c, s in regime.index_scores.items()
+                    },
+                }
+
             _running_tasks[run_id]["progress"] = 80
 
             # 读取结果

@@ -35,6 +35,29 @@
         </div>
 
         {% elif status.status == 'complete' and status.result %}
+        {# 大盘状态评估 #}
+        {% if status.market_regime %}
+        {% set mr = status.market_regime %}
+        <div class="alert {{ 'alert-success' if mr.mode == 'aggressive' else 'alert-warning' }} py-2 mb-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>大盘评估</strong>：
+                    综合得分 <strong>{{ mr.market_score }}%</strong>
+                    （阈值 {{ mr.median_score }}%），
+                    模式 <span class="badge {{ 'bg-success' if mr.mode == 'aggressive' else 'bg-warning text-dark' }}">
+                        {{ '激进' if mr.mode == 'aggressive' else '保守' }}
+                    </span>
+                    ，持仓上限 {{ mr.top_n }} 只
+                </div>
+                <div class="small text-muted">
+                    {% for idx, sc in mr.index_scores.items() %}
+                    {{ idx }}: <span class="{{ 'text-success' if sc > 0 else 'text-danger' }}">{{ sc }}%</span>
+                    {% if not loop.last %} | {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
         <div class="table-responsive">
             <table class="table table-sm table-striped">
                 <thead>

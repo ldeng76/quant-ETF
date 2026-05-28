@@ -233,6 +233,7 @@ class ETFTask(BaseTask):
         # 1. 大盘状态评估
         index_data = {c: data[c] for c in INDEX_WEIGHTS if c in data}
         regime = assess_market(index_data, bar_interval=self._bar_interval)
+        self._regime = regime  # 供 runner 读取
 
         # 2. 按动量 score 排序
         ranked = self.strategy.rank_etfs(data)
