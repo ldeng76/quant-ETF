@@ -84,13 +84,20 @@ class BaseTask(ABC):
         output_dir = PROJECT_ROOT / "data" / "results" / date_str
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        output_path = output_dir / f"{filename_prefix}.csv"
+        # 日线保持原路径，分钟周期加后缀
+        if self._bar_interval == "1d":
+            output_path = output_dir / f"{filename_prefix}.csv"
+        else:
+            output_path = output_dir / f"{filename_prefix}_{self._bar_interval}.csv"
         
         df = pd.DataFrame(data)
         
         # 确保 date 列存在
         if "date" not in df.columns:
             df.insert(0, "date", date_str)
+        
+        # 新增 interval 列标识周期
+        df.insert(1, "interval", self._bar_interval)
         
         # 调整列顺序：name列移到第3个位置（在code之后）
         if "name" in df.columns:
@@ -178,6 +185,7 @@ class BaseTask(ABC):
             logger.info(f"Filtered data to before {self.target_date}")
 
         logger.info(f"Running strategy on {len(data)} securities...")
+        self._loaded_data = data
         results = self.run_strategy(data)
 
         if not results:
@@ -295,8 +303,11 @@ class ETFTask(BaseTask):
         logger.info("FINAL PORTFOLIO TARGETS")
         logger.info("=" * 30)
         for code in codes:
+            df = self._loaded_data.get(code)
+            if df is None or df.empty:
+                continue
             weight = self.strategy.get_target_portfolio(
-                self.strategy.rank_etfs({code: self.ds.load_data(code)}), top_n=1
+                self.strategy.rank_etfs({code: df}), top_n=1
             ).get(code, 0)
             etf_name = etf_name_map.get(code, "Unknown")
             logger.info(f"ETF: {code} ({etf_name}) | Target Weight: {weight:.2%}")

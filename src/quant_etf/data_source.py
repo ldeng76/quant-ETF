@@ -179,13 +179,7 @@ class ETFDataSource:
         """
         bar_interval = get_interval(interval)
         if not bar_interval.is_daily:
-            result: Dict[str, pd.DataFrame] = {}
-            for code in codes:
-                try:
-                    result[code] = self._load_minute_data_resampled(code, bar_interval)
-                except Exception as e:
-                    logger.error(f"Failed to load {interval} data for {code}: {e}")
-            return result
+            return self._load_minute_data_resampled_batch(codes, bar_interval)
 
         result: Dict[str, pd.DataFrame] = {}
         need_online = []
@@ -266,13 +260,7 @@ class ETFDataSource:
         """
         bar_interval = get_interval(interval)
         if not bar_interval.is_daily:
-            result: Dict[str, pd.DataFrame] = {}
-            for code in codes:
-                try:
-                    result[code] = self._load_minute_data_resampled(code, bar_interval)
-                except Exception as e:
-                    logger.error(f"Failed to load {interval} data for stock {code}: {e}")
-            return result
+            return self._load_minute_data_resampled_batch(codes, bar_interval)
 
         result: Dict[str, pd.DataFrame] = {}
         need_online = []
@@ -478,6 +466,28 @@ class ETFDataSource:
         df["pct_chg"] = df["close"].pct_change() * 100
         df = df[["open", "high", "low", "close", "amount", "volume", "pct_chg"]]
         return df
+
+
+    def _load_minute_data_resampled_batch(
+        self, codes: List[str], interval: BarInterval
+    ) -> Dict[str, pd.DataFrame]:
+        """批量从1分钟数据重采样（单次PG拉取 + DuckDB聚合）"""
+        from quant_etf.minute_resampler import resample_bars_batch
+
+        raw = resample_bars_batch(codes, interval)
+        result: Dict[str, pd.DataFrame] = {}
+        for code in codes:
+            df = raw.get(code, pd.DataFrame())
+            if df.empty:
+                logger.warning(
+                    f"No minute data for {code} at {interval.label} interval. Skipping."
+                )
+                continue
+            df = df.set_index("time")
+            df["pct_chg"] = df["close"].pct_change() * 100
+            df = df[["open", "high", "low", "close", "amount", "volume", "pct_chg"]]
+            result[code] = df
+        return result
 
     def _append_intraday_if_needed(self, code: str, df: pd.DataFrame, intraday: bool, adjust_qfq: bool) -> pd.DataFrame:
         """
