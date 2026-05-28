@@ -508,9 +508,10 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
     else:
         slice_df = df.iloc[-(n_bars + 1):].copy()
 
-    # 累计涨幅
+    # 累计涨幅 + 原始价格
     base_price = slice_df.iloc[0]["close"]
     cum_ret = ((slice_df["close"] - base_price) / base_price).tolist()
+    prices = slice_df["close"].round(4).tolist()
 
     # 日期/时间标签（去掉年份）
     if "date" in slice_df.columns:
@@ -528,4 +529,5 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
         "label": label,
         "dates": dates,
         "values": cum_ret,
+        "prices": prices,
     }

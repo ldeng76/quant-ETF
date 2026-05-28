@@ -174,7 +174,7 @@
                             trigger: 'axis',
                             formatter: function(params) {
                                 const p = params[0];
-                                return p.name + '<br/>' + p.seriesName + ': ' + p.value + '%';
+                                return p.name + '<br/>价格: ' + data.prices[p.dataIndex] + '<br/>' + p.seriesName + ': ' + p.value + '%';
                             }
                         },
                         xAxis: { type: 'category', data: data.dates, axisLabel: { rotate: 45 } },
