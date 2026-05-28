@@ -227,14 +227,25 @@ class ETFTask(BaseTask):
         return self.ds.load_data_batch(pool, intraday=self.intraday, interval=self._bar_interval)
 
     def run_strategy(self, data: Dict[str, pd.DataFrame]) -> List[ETFScore]:
-        ranked = self.strategy.rank_etfs(data)
-        # 构建映射以便查找原始涨幅数据
-        ranked_map = {item.code: item for item in ranked}
-        
-        portfolio = self.strategy.get_target_portfolio(ranked, top_n=TOP_N)
+        from quant_etf.market_regime import assess_market
+        from quant_etf.conf import INDEX_WEIGHTS, MARKET_REGIME_CONFIG
 
+        # 1. 大盘状态评估
+        index_data = {c: data[c] for c in INDEX_WEIGHTS if c in data}
+        regime = assess_market(index_data, bar_interval=self._bar_interval)
+
+        # 2. 按动量 score 排序
+        ranked = self.strategy.rank_etfs(data)
+        ranked_map = {item.code: item for item in ranked}
+
+        # 3. 取 top_n（根据大盘状态）
+        top_n = regime.top_n
+        portfolio = self.strategy.get_target_portfolio(ranked, top_n=top_n)
+
+        # 4. 风控调整（defensive 时折扣更大）
         etf_name_map = self.ds.get_etf_name_map()
         final_portfolio = {}
+        warning_factor = 0.5 * regime.risk_discount
 
         for code, weight in portfolio.items():
             df = data[code]
@@ -252,32 +263,29 @@ class ETFTask(BaseTask):
                     f"RISK WARNING for {code} ({etf_name}): {risk_status.reason}. "
                     f"Action: {risk_status.suggested_action}"
                 )
-                final_portfolio[code] = weight * 0.5
+                final_portfolio[code] = weight * warning_factor
             else:
                 logger.info(f"Risk Check {code} ({etf_name}): PASSED")
                 final_portfolio[code] = weight
 
+        # 5. 输出：保持动量 score 降序
         output_results = []
-        etf_name_map = self.ds.get_etf_name_map()
-        for code, weight in final_portfolio.items():
-            if weight > 0:
-                original_item = ranked_map.get(code)
-                p60 = original_item.p60 if original_item else 0.0
-                p20 = original_item.p20 if original_item else 0.0
-                p10 = original_item.p10 if original_item else 0.0
-                p5 = original_item.p5 if original_item else 0.0
-                
+        for code, adj_weight in final_portfolio.items():
+            if adj_weight > 0:
+                original = ranked_map.get(code)
+                if not original:
+                    continue
                 item = ETFScore(
                     code=code,
-                    score=weight,
-                    p60=p60,
-                    p20=p20,
-                    p10=p10,
-                    p5=p5,
+                    score=original.score,
+                    p60=original.p60,
+                    p20=original.p20,
+                    p10=original.p10,
+                    p5=original.p5,
                 )
-                output_results.append((item, etf_name_map.get(code, "Unknown"), weight))
+                output_results.append((item, adj_weight))
 
-        output_results.sort(key=lambda x: x[2], reverse=True)
+        output_results.sort(key=lambda x: x[0].score, reverse=True)
         return [item[0] for item in output_results]
 
     def format_result(self, result: ETFScore, name_map: Dict[str, str]) -> str:
