@@ -16,6 +16,8 @@ Commands:
     list-tasks        列出所有可用选股任务
     check             Dashboard 健康检查
     backfill-missing  检查并补算最近N个交易日内缺失的策略结果CSV
+    minute-fill       智能增量补全分钟K线数据
+    minute-audit      审计分钟K线数据缺失
 """
 import argparse
 import sys
@@ -515,6 +517,25 @@ def build_parser():
                    help="指定策略名，可多次使用 (默认: etf)")
     p.add_argument("--dry-run", action="store_true", help="仅扫描不补算，输出缺失报告")
 
+    p = sub.add_parser("clean-minute-data", help="清理 minute_bars 表中的过期数据")
+    p.add_argument("--months", "-m", type=int, default=6, help="保留最近几个月的数据 (默认: 6)")
+    p.add_argument("--dry-run", action="store_true", help="仅统计不删除")
+
+    p = sub.add_parser("minute-fill", help="智能增量补全分钟K线数据")
+    p.add_argument("--pool", type=str, default="etf",
+                   choices=["etf", "stock", "all"],
+                   help="股票池 (默认: etf)")
+    p.add_argument("--days", type=int, default=60, help="最大回溯天数 (默认: 60)")
+    p.add_argument("--codes", type=str, help="逗号分隔的标的代码 (覆盖 --pool)")
+
+    p = sub.add_parser("minute-audit", help="审计分钟K线数据缺失")
+    p.add_argument("--pool", type=str, default="etf",
+                   choices=["etf", "stock", "all"],
+                   help="股票池 (默认: etf)")
+    p.add_argument("--days", type=int, default=60, help="审计最近N个交易日 (默认: 60)")
+    p.add_argument("--codes", type=str, help="逗号分隔的标的代码 (覆盖 --pool)")
+    p.add_argument("--fix", action="store_true", help="自动修复缺失")
+
     return parser
 
 
@@ -601,11 +622,82 @@ def cmd_refresh_stock_names(args):
         print(f"\n[Failed codes] (kept old entries): {result['failed']}")
 
 
+def cmd_clean_minute_data(args):
+    from loguru import logger
+    from quant_etf.minute_collector import clean_expired_minute_data
+
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    logger.add(log_dir / "clean_minute_data_{time:YYYY-MM-DD}.log", rotation="10 MB", encoding="utf-8")
+
+    mode = "DRY RUN" if args.dry_run else "EXECUTE"
+    logger.info(f"Minute data cleanup [{mode}], retain {args.months} months")
+
+    result = clean_expired_minute_data(retain_months=args.months, dry_run=args.dry_run)
+
+    print(f"\n=== Minute Data Cleanup ===")
+    print(f"  Mode: {'DRY RUN' if args.dry_run else 'EXECUTE'}")
+    print(f"  Cutoff time: {result['cutoff_time']}")
+    print(f"  Total rows before: {result['total_before']}")
+    print(f"  Deleted: {result['deleted']}")
+    print(f"  Total rows after: {result['total_after']}")
+    print(f"  Codes affected: {result['codes_affected']}")
+
+
+def cmd_minute_fill(args):
+    from loguru import logger
+    from quant_etf.minute_fill import (
+        _get_pool_codes,
+        fill_minute_gaps,
+        print_fill_report,
+    )
+
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    logger.add(log_dir / "minute_fill_{time:YYYY-MM-DD}.log", rotation="10 MB", encoding="utf-8")
+
+    codes = args.codes.split(",") if args.codes else _get_pool_codes(args.pool)
+
+    logger.info("=" * 60)
+    logger.info("分钟K线智能补全")
+    logger.info(f"标的数: {len(codes)}, 最大回溯: {args.days} 天")
+    logger.info("=" * 60)
+
+    stats = fill_minute_gaps(codes=codes, max_days=args.days)
+    print_fill_report(stats)
+
+
+def cmd_minute_audit(args):
+    from loguru import logger
+    from quant_etf.minute_fill import (
+        _get_pool_codes,
+        audit_minute_gaps,
+        print_audit_report,
+    )
+
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    logger.add(log_dir / "minute_audit_{time:YYYY-MM-DD}.log", rotation="10 MB", encoding="utf-8")
+
+    codes = args.codes.split(",") if args.codes else _get_pool_codes(args.pool)
+
+    logger.info("=" * 60)
+    logger.info("分钟K线数据审计")
+    logger.info(f"标的数: {len(codes)}, 审计天数: {args.days}")
+    if args.fix:
+        logger.info("模式: 审计 + 自动修复")
+    logger.info("=" * 60)
+
+    report = audit_minute_gaps(codes=codes, max_days=args.days, fix=args.fix)
+    print_audit_report(report)
+
+
 COMMANDS = {
     "daily-run": cmd_daily_run,
     "dashboard": cmd_dashboard,
     "minute-collect": cmd_minute_collect,
     "minute-backfill": cmd_minute_backfill,
+    "clean-minute-data": cmd_clean_minute_data,
     "backfill": cmd_backfill,
     "restart-dashboard": cmd_restart_dashboard,
     "run": cmd_run,
@@ -614,6 +706,8 @@ COMMANDS = {
     "backfill-stock-names": cmd_backfill_stock_names,
     "refresh-stock-names": cmd_refresh_stock_names,
     "backfill-missing": cmd_backfill_missing,
+    "minute-fill": cmd_minute_fill,
+    "minute-audit": cmd_minute_audit,
 }
 
 
