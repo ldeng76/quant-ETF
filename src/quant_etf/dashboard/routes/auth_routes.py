@@ -1,17 +1,17 @@
 """
-OAuth 认证路由 + 微信小程序登录
+OAuth 认证路由 + 微信小程序登录 + 本地密码登录
 - /auth/login         - 登录页面
 - /auth/github        - GitHub OAuth
 - /auth/github/callback - GitHub 回调
 - /auth/wecom         - 企业微信 OAuth
 - /auth/wecom/callback  - 企业微信回调
 - /auth/wechat/login  - 微信小程序 login (POST code)
-- /auth/wechat/callback - 微信小程序 token 刷新（预留）
 - /auth/logout        - 登出
 - /auth/me            - 当前用户信息
 - /auth/status        - 认证状态
+- POST /auth/login    - 本地密码登录
 """
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from loguru import logger
@@ -27,17 +27,41 @@ from ..auth import (
     handle_wecom_callback,
     find_or_create_user,
     get_user_by_id,
+    verify_password,
+    is_local_login_locked,
+    record_local_failure,
+    clear_local_failures,
+    get_local_user_by_username,
+    init_local_users_table,
+    create_local_user,
+)
+from ..config import (
+    GITHUB_CLIENT_ID, WECOM_CORPID, DASHBOARD_PORT,
+    INIT_ADMIN_USER, INIT_ADMIN_PASS,
 )
 from ..wechat_mini import (
     code_to_session,
     find_or_create_wechat_user,
     create_wechat_jwt,
-    verify_wechat_jwt,
-    get_user_by_id as wc_get_user_by_id,
 )
-from ..config import GITHUB_CLIENT_ID, WECOM_CORPID, DASHBOARD_PORT
-
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# ============================================================
+# 模块加载时初始化
+# ============================================================
+
+def _init_local_auth():
+    """初始化本地用户表和管理员账号"""
+    init_local_users_table()
+    if INIT_ADMIN_USER and INIT_ADMIN_PASS:
+        existing = get_local_user_by_username(INIT_ADMIN_USER)
+        if not existing:
+            create_local_user(INIT_ADMIN_USER, INIT_ADMIN_PASS, role="admin", display_name="管理员")
+            logger.info(f"Created initial admin user: {INIT_ADMIN_USER}")
+
+
+_init_local_auth()
 
 
 # ============================================================
@@ -63,8 +87,47 @@ async def login_page(request: Request):
         {
             "github_enabled": bool(GITHUB_CLIENT_ID),
             "wecom_enabled": bool(WECOM_CORPID),
+            "local_login_enabled": bool(INIT_ADMIN_USER),
         }
     )
+
+
+# ============================================================
+# 本地密码登录（表单）
+# ============================================================
+
+@router.post("/login")
+async def login_post(request: Request, username: str = Form(...), password: str = Form(...)):
+    """用户名密码表单登录"""
+    if not is_auth_enabled():
+        raise HTTPException(403, "Authentication is disabled")
+
+    # 1. 检查是否锁定
+    if is_local_login_locked(username):
+        return RedirectResponse(url="/auth/login?error=locked", status_code=302)
+
+    # 2. 查找用户并验证密码
+    user = get_local_user_by_username(username)
+    if not user or not verify_password(password, user["password_hash"]):
+        record_local_failure(username)
+        return RedirectResponse(url="/auth/login?error=invalid", status_code=302)
+
+    # 3. 签发 JWT
+    clear_local_failures(username)
+    jwt_token = create_jwt(user["id"], user["role"], provider="local")
+
+    # 4. 写 Cookie + 重定向
+    logger.info(f"User {username} logged in via local password")
+    response = RedirectResponse(url="/pages/overview", status_code=302)
+    response.set_cookie(
+        key="session",
+        value=jwt_token,
+        httponly=True,
+        samesite="strict",
+        secure=False,  # 开发环境，生产环境设为 True
+        max_age=7 * 86400,
+    )
+    return response
 
 
 # ============================================================
@@ -484,3 +547,7 @@ async def api_extend_user(user_id: int, data: _UserExtendRequest, user: dict = D
         "expires_at": updated.get("expires_at").isoformat() if updated.get("expires_at") else None,
         "message": f"Extended by {data.days} days",
     }
+
+
+# 引入 wechat_mini 中的验证函数（auth_status 使用）
+from ..wechat_mini import verify_wechat_jwt, get_user_by_id as wc_get_user_by_id

@@ -285,7 +285,6 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version     INTEGER PRIMARY KEY,
     applied_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
 -- event_log 表（Phase 2 跨节点 SSE）
 CREATE TABLE IF NOT EXISTS event_log (
     id          SERIAL PRIMARY KEY,
@@ -296,7 +295,18 @@ CREATE TABLE IF NOT EXISTS event_log (
 );
 CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at);
 
--- task_runs 表（策略运行状态持久化）
+-- local_users 表（本地账号密码登录）
+CREATE TABLE IF NOT EXISTS local_users (
+    id              SERIAL PRIMARY KEY,
+    username        VARCHAR(50) UNIQUE NOT NULL,
+    password_hash   VARCHAR(255) NOT NULL,
+    display_name    VARCHAR(100),
+    role            VARCHAR(20) DEFAULT 'user',
+    is_active       BOOLEAN DEFAULT true,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS task_runs (
     run_id      VARCHAR(100) PRIMARY KEY,
     strategy    VARCHAR(50) NOT NULL,

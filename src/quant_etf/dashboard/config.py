@@ -70,5 +70,11 @@ WECHAT_MINI_SECRET = os.environ.get("WECHAT_MINI_SECRET", "")
 # 微信小程序登录凭证校验地址
 WECHAT_CODE2SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session"
 
+# ============================================================
+# 本地账号配置（密码登录）
+# ============================================================
+INIT_ADMIN_USER = os.environ.get("INIT_ADMIN_USER", "")
+INIT_ADMIN_PASS = os.environ.get("INIT_ADMIN_PASS", "")
+
 # 管理员OAuth ID（首个匹配此ID的登录用户成为admin）
 ADMIN_OAUTH_ID = os.environ.get("ADMIN_OAUTH_ID", "")
