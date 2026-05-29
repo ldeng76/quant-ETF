@@ -49,7 +49,6 @@ async def sse_events(request: Request):
     from .deps import get_current_user
     await get_current_user(request)
     return StreamingResponse(
-        sse_manager.stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
