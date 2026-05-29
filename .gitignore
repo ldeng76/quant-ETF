@@ -16,12 +16,15 @@ wheels/
 .idea/
 
 # Data and Logs
-data/
+data/*
+!data/meta/
 logs/
 output/
 
 # Claude Code
 .memsearch/
 
-# Third-party tools
 goose_update_temp/
+
+# Local wiki
+.qoder/
