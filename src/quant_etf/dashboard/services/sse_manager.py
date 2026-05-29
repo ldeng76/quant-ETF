@@ -21,6 +21,8 @@ class SSEManager:
             while True:
                 try:
                     data = await asyncio.wait_for(queue.get(), timeout=30)
+                    if data is None:  # shutdown sentinel
+                        break
                     yield f"data: {json.dumps(data)}\n\n"
                 except asyncio.TimeoutError:
                     # 心跳保持连接
@@ -38,6 +40,15 @@ class SSEManager:
                 await queue.put(data)
             except Exception:
                 self._queues.discard(queue)
+
+    async def close(self):
+        """关闭所有连接（shutdown时调用）"""
+        for queue in self._queues.copy():
+            try:
+                await queue.put(None)  # sentinel to unblock waiters
+            except Exception:
+                self._queues.discard(queue)
+        logger.debug("SSE manager closed")
 
 
 # 全局单例
