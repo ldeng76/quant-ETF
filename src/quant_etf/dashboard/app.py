@@ -3,7 +3,7 @@ FastAPI应用入口
 """
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse, Response
 from loguru import logger
 
@@ -46,57 +46,65 @@ async def favicon():
 @app.get("/events")
 async def sse_events(request: Request):
     """SSE 事件流端点"""
+    from .deps import get_current_user
+    await get_current_user(request)
     return StreamingResponse(
-        sse_manager.subscribe(),
+        sse_manager.stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
+        headers={"Cache-Control": "no-cache"},
     )
 
 
 @app.get("/health")
 async def health():
     """健康检查端点"""
+    from .services.scheduler import scheduler
+    from .services.sse_manager import sse_manager
     health_info = {
         "status": "ok",
-        "node_role": "primary" if IS_PRIMARY else "secondary",
-        "auth_enabled": is_auth_enabled(),
+        "role": "primary" if IS_PRIMARY else "secondary",
+        "postgres": POSTGRES_HOST,
+        "scheduler_tasks": len(scheduler.get_all_tasks()),
+        "sse_clients": sse_manager.client_count,
     }
-    # 检查 PostgreSQL 连接
-    try:
-        from .db import query_one
-        result = query_one("SELECT 1")
-        health_info["postgresql"] = "ok" if result else "error"
-    except Exception as e:
-        health_info["postgresql"] = f"error: {e}"
-
     return JSONResponse(content=health_info)
 
 
 @app.on_event("startup")
 async def startup():
     """应用启动时初始化"""
-    init_db()
-    run_migrations()
+    logger.info("Dashboard starting...")
+
+    # 初始化数据库表
+    try:
+        init_db()
+        run_migrations()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.warning(f"Database init skipped: {e}")
+
+    # 启动调度器
     if IS_PRIMARY:
-        await scheduler.start_all()
-    # 启动后台预加载（不阻塞主线程）
-    start_background_preload()
-    logger.info(
-        f"Dashboard startup complete "
-        f"(role={'primary' if IS_PRIMARY else 'secondary'}, "
-        f"auth={is_auth_enabled()}, "
-        f"postgres={POSTGRES_HOST})"
-    )
+        try:
+            scheduler.start_all()
+            logger.info("Scheduler started")
+        except Exception as e:
+            logger.warning(f"Scheduler start skipped: {e}")
+
+    # 启动后台预加载（非阻塞，后台线程执行）
+    try:
+        start_background_preload()
+    except Exception as e:
+        logger.warning(f"Background preload skipped: {e}")
+
+    logger.info(f"Dashboard ready on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """应用关闭时清理"""
-    await scheduler.stop_all()
+    logger.info("Dashboard shutting down...")
+    scheduler.stop_all()
     await close_pool()
     logger.info("Dashboard shutdown complete")
 
@@ -107,21 +115,25 @@ async def generic_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_redirect_handler(request: Request, exc: HTTPException):
+    """处理 302 重定向（登录页跳转）"""
+    if exc.status_code == 302:
+        return RedirectResponse(url=exc.detail, status_code=302)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 def main():
     """CLI入口"""
     import os
     from dotenv import load_dotenv
-    import uvicorn
-
     load_dotenv()
-    reload = os.environ.get("DASHBOARD_RELOAD", "true").lower() != "false"
-
+    import uvicorn
     uvicorn.run(
         "quant_etf.dashboard.app:app",
         host=DASHBOARD_HOST,
         port=DASHBOARD_PORT,
-        reload=reload,
-        timeout_graceful_shutdown=3,
+        reload=False,
     )
 
 

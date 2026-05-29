@@ -4,11 +4,9 @@ FastAPI 认证依赖注入
 """
 from datetime import datetime
 from fastapi import Request, HTTPException, Depends
-from fastapi.responses import RedirectResponse
 from loguru import logger
 
 from .auth import is_auth_enabled, verify_jwt, get_user_by_id
-from .config import DASHBOARD_PORT
 
 
 # 缓存用户信息，避免每个请求多次查询DB
@@ -20,7 +18,7 @@ async def get_current_user(request: Request) -> dict:
     从 Bearer Token 或 cookie 解析 JWT，返回用户信息。
     - API 请求（小程序）：优先读取 Authorization: Bearer <token>
     - 页面请求（HTMX）：回退到 cookie "session"
-    - 未认证则 401 JSON 或 302 重定向
+    - 未认证则 401 JSON 或 302 重定向到登录页
     """
     if not is_auth_enabled():
         # 认证禁用时，返回一个模拟的 admin 用户（兼容开发模式）
@@ -40,11 +38,11 @@ async def get_current_user(request: Request) -> dict:
         token = request.cookies.get("session")
 
     if not token:
-        return _reject_unauthenticated(request, "no auth token")
+        raise _unauthenticated(request, "no auth token")
 
     payload = verify_jwt(token)
     if not payload:
-        return _reject_unauthenticated(request, "invalid/expired token")
+        raise _unauthenticated(request, "invalid/expired token")
 
     user_id = int(payload["sub"])
 
@@ -55,7 +53,7 @@ async def get_current_user(request: Request) -> dict:
 
     user = get_user_by_id(user_id)
     if not user:
-        return _reject_unauthenticated(request, "user not found")
+        raise _unauthenticated(request, "user not found")
 
     # 检查账户有效期
     expires_at = user.get("expires_at")
@@ -87,9 +85,11 @@ async def require_admin_async(request: Request) -> dict:
     return user
 
 
-def _reject_unauthenticated(request: Request, reason: str) -> dict:
+def _unauthenticated(request: Request, reason: str):
     """
-    根据请求类型决定返回 302 重定向还是 401 JSON
+    未认证时抛出异常：
+    - 浏览器直接访问页面 → 302 重定向到登录页
+    - API / HTMX 请求 → 401 JSON
     """
     is_htmx = request.headers.get("hx-request", "").lower() == "true"
     is_api = request.url.path.startswith("/api/")
@@ -97,14 +97,11 @@ def _reject_unauthenticated(request: Request, reason: str) -> dict:
     if is_htmx or is_api:
         raise HTTPException(status_code=401, detail=f"Unauthorized: {reason}")
     else:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Unauthorized: {reason}",
-        )
+        # 浏览器直接访问：302 重定向到登录页
+        raise HTTPException(status_code=302, detail="/auth/login")
 
 
 def clear_user_cache(request: Request) -> None:
     """清除请求级别的用户缓存"""
     global _async_user_cache
-    # 简单清理：保留最近的不变
     pass
