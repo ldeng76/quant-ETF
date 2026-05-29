@@ -16,18 +16,18 @@ class Scheduler:
     def __init__(self):
         self._tasks: dict[int, asyncio.Task] = {}
 
-    async def start_loop(self, schedule_id: int, strategy: str, interval: int):
+    async def start_loop(self, schedule_id: int, strategy: str, interval: int, bar_interval: str = "1d"):
         """启动定时循环"""
-        logger.info(f"Starting scheduled loop: {strategy} (every {interval}s)")
+        logger.info(f"Starting scheduled loop: {strategy} (every {interval}s, interval={bar_interval})")
         while True:
             try:
-                logger.info(f"Scheduled run: {strategy} (every {interval}s)")
+                logger.info(f"Scheduled run: {strategy} (every {interval}s, interval={bar_interval})")
                 run_id = f"sched_{schedule_id}_{datetime.now().timestamp()}"
-                await run_strategy(strategy, run_id)
+                await run_strategy(strategy, run_id, bar_interval=bar_interval)
 
                 # 更新最后运行时间
                 execute(
-                    "UPDATE schedules SET last_run_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE schedules SET last_run_at = CURRENT_TIMESTAMP WHERE id = %s",
                     [schedule_id]
                 )
 
@@ -57,14 +57,15 @@ class Scheduler:
 
     async def start_all(self):
         """启动所有已启用的调度"""
-        schedules = query("SELECT * FROM schedules WHERE enabled = 1")
+        schedules = query("SELECT * FROM schedules WHERE enabled = TRUE")
         for s in schedules:
             if s["id"] not in self._tasks:
+                bar_interval = s.get("bar_interval", "1d")
                 task = asyncio.create_task(
-                    self.start_loop(s["id"], s["strategy"], s["interval"])
+                    self.start_loop(s["id"], s["strategy"], s["interval"], bar_interval)
                 )
                 self._tasks[s["id"]] = task
-                logger.info(f"Scheduler started: {s['strategy']} (id={s['id']})")
+                logger.info(f"Scheduler started: {s['strategy']} (id={s['id']}, interval={bar_interval})")
 
     async def stop(self, schedule_id: int):
         """停止指定调度"""

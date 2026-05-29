@@ -3,7 +3,7 @@
 {% block content %}
 <div class="py-3" x-data="{
     showScheduleModal: false,
-    scheduleForm: { strategy: '', interval: 300 },
+    scheduleForm: { strategy: '', interval: 300, bar_interval: '1d' },
     strategies: [],
     async initStrategies() {
         try {
@@ -17,7 +17,7 @@
         }
     },
     resetScheduleForm() { 
-        this.scheduleForm = { strategy: this.strategies[0]?.name || '', interval: 300 };
+        this.scheduleForm = { strategy: this.strategies[0]?.name || '', interval: 300, bar_interval: '1d' };
     },
 }" x-init="initStrategies()" x-on:open-schedule-modal.window="showScheduleModal = true; resetScheduleForm()">
     <h4><i class="bi bi-eye"></i> 实时监控</h4>
@@ -87,7 +87,7 @@
                 fetch('/api/market/schedules', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({strategy: scheduleForm.strategy, interval: parseInt(scheduleForm.interval)})
+                    body: JSON.stringify({strategy: scheduleForm.strategy, interval: parseInt(scheduleForm.interval), bar_interval: scheduleForm.bar_interval})
                 }).then(() => {
                     htmx.ajax('GET', '/api/market/schedules', {target: '#schedule-table'});
                     showScheduleModal = false;
@@ -100,6 +100,15 @@
                         <template x-for="s in strategies" :key="s.name">
                             <option :value="s.name" x-text="s.title + '（' + s.name + '）'"></option>
                         </template>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">K线周期 *</label>
+                    <select name="bar_interval" class="form-select form-select-sm" x-model="scheduleForm.bar_interval" required>
+                        <option value="1d">日线</option>
+                        <option value="60m">60分钟</option>
+                        <option value="30m">30分钟</option>
+                        <option value="15m">15分钟</option>
                     </select>
                 </div>
                 <div class="mb-3">

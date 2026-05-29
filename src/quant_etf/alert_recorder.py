@@ -1,10 +1,9 @@
 """
 提醒记录器
 
-将策略信号和提醒信息保存到数据库
+将策略信号和提醒信息保存到 PostgreSQL 数据库
 """
-
-import duckdb
+import psycopg2
 from pathlib import Path
 from loguru import logger
 from datetime import datetime
@@ -12,77 +11,82 @@ from typing import List, Optional
 
 from quant_etf.market_analyzer import MarketState
 from quant_etf.strategies.momentum_breakthrough import StrategySignal
-from quant_etf.conf import DATA_DIR
 
 
-def get_alert_db_path() -> Path:
-    """
-    获取提醒数据库文件路径
-    """
-    data_dir = DATA_DIR / "alerts"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / "alerts.duckdb"
+_pg_conn = None
 
 
-def init_alert_db() -> duckdb.DuckDBPyConnection:
-    """
-    初始化提醒数据库
-    """
-    db_path = get_alert_db_path()
-    conn = duckdb.connect(str(db_path))
+def _get_pg_conn():
+    """获取 PG 同步连接（单例）"""
+    global _pg_conn
+    if _pg_conn is None:
+        from quant_etf.dashboard.config import (
+            POSTGRES_HOST, POSTGRES_PORT,
+            POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
+        )
+        _pg_conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            database=POSTGRES_DB,
+        )
+        logger.info("PostgreSQL connection created for alert recorder")
+    return _pg_conn
 
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            time TIMESTAMP,
-            code VARCHAR,
-            strategy_name VARCHAR,
-            signal_type VARCHAR,
-            direction VARCHAR,
-            score DOUBLE,
-            entry_price DOUBLE,
-            stop_loss DOUBLE,
-            take_profit DOUBLE,
-            reason TEXT,
-            market_state VARCHAR,
-            market_return DOUBLE,
-            market_volatility DOUBLE,
-            ma10 DOUBLE,
-            ma20 DOUBLE,
-            ma30 DOUBLE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+def close_pg_conn():
+    """关闭 PG 连接"""
+    global _pg_conn
+    if _pg_conn:
+        _pg_conn.close()
+        _pg_conn = None
+        logger.info("PostgreSQL connection closed for alert recorder")
+
+
+def init_alert_db():
+    """初始化提醒数据库"""
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS monitor_alerts (
+            id              SERIAL PRIMARY KEY,
+            time            TIMESTAMP,
+            code            VARCHAR(20),
+            strategy_name   VARCHAR(100),
+            signal_type     VARCHAR(20),
+            direction       VARCHAR(20),
+            score           NUMERIC(10, 4),
+            entry_price     NUMERIC(18, 4),
+            stop_loss       NUMERIC(18, 4),
+            take_profit     NUMERIC(18, 4),
+            reason          TEXT,
+            market_state    VARCHAR(20),
+            market_return   NUMERIC(10, 4),
+            market_volatility NUMERIC(10, 4),
+            ma10            NUMERIC(18, 4),
+            ma20            NUMERIC(18, 4),
+            ma30            NUMERIC(18, 4),
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_time ON alerts(time)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_monitor_alerts_time ON monitor_alerts(time DESC)
     """)
-
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_code ON alerts(code)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_monitor_alerts_code ON monitor_alerts(code)
     """)
-
-    logger.info(f"Initialized alert database: {db_path}")
+    conn.commit()
+    logger.info("Ensured monitor_alerts table exists")
     return conn
-
-
-def get_alert_db_connection() -> duckdb.DuckDBPyConnection:
-    """
-    获取提醒数据库连接（单例模式）
-    """
-    if not hasattr(get_alert_db_connection, "_conn"):
-        get_alert_db_connection._conn = init_alert_db()
-    return get_alert_db_connection._conn
 
 
 class AlertRecorder:
     """提醒记录器"""
 
     def __init__(self):
-        """
-        初始化提醒记录器
-        """
-        self.conn = get_alert_db_connection()
+        """初始化提醒记录器"""
+        self.conn = _get_pg_conn()
 
     def record_signal(self, signal: StrategySignal, market_state: MarketState) -> bool:
         """
@@ -92,33 +96,31 @@ class AlertRecorder:
         :return: 是否成功
         """
         try:
-            self.conn.execute(
-                """
-                INSERT INTO alerts
+            cur = self.conn.cursor()
+            cur.execute("""
+                INSERT INTO monitor_alerts
                 (time, code, strategy_name, signal_type, direction, score,
                  entry_price, stop_loss, take_profit, reason, market_state,
                  market_return, market_volatility, ma10, ma20, ma30)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    signal.code,
-                    signal.code,
-                    signal.strategy_name,
-                    signal.signal_type.value,
-                    signal.direction,
-                    signal.score,
-                    signal.entry_price,
-                    signal.stop_loss,
-                    signal.take_profit,
-                    signal.reason,
-                    market_state.market_type.value,
-                    market_state.etf_pool_return,
-                    market_state.volatility,
-                    signal.ma10,
-                    signal.ma20,
-                    signal.ma30,
-                ),
-            )
+                VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                signal.code,
+                signal.strategy_name,
+                signal.signal_type.value,
+                signal.direction,
+                signal.score,
+                signal.entry_price,
+                signal.stop_loss,
+                signal.take_profit,
+                signal.reason,
+                market_state.market_type.value,
+                market_state.etf_pool_return,
+                market_state.volatility,
+                signal.ma10,
+                signal.ma20,
+                signal.ma30,
+            ))
+            self.conn.commit()
 
             logger.info(f"Recorded alert for {signal.code}: {signal.reason[:50]}...")
             return True
@@ -152,17 +154,19 @@ class AlertRecorder:
         :return: 提醒列表
         """
         try:
-            query = f"""
-                SELECT * FROM alerts
-                WHERE time >= datetime('now', '-{hours} hours')
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT * FROM monitor_alerts
+                WHERE time >= NOW() - INTERVAL '%s hours'
                 ORDER BY time DESC
-                LIMIT {limit}
-            """
-            result = self.conn.execute(query).fetchall()
-            columns = [desc[0] for desc in self.conn.description]
+                LIMIT %s
+            """, [hours, limit])
+
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
 
             alerts = []
-            for row in result:
+            for row in rows:
                 alert_dict = dict(zip(columns, row))
                 alerts.append(alert_dict)
 
@@ -180,17 +184,19 @@ class AlertRecorder:
         :return: 提醒列表
         """
         try:
-            query = f"""
-                SELECT * FROM alerts
-                WHERE code = '{code}'
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT * FROM monitor_alerts
+                WHERE code = %s
                 ORDER BY time DESC
-                LIMIT {limit}
-            """
-            result = self.conn.execute(query).fetchall()
-            columns = [desc[0] for desc in self.conn.description]
+                LIMIT %s
+            """, [code, limit])
+
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
 
             alerts = []
-            for row in result:
+            for row in rows:
                 alert_dict = dict(zip(columns, row))
                 alerts.append(alert_dict)
 
@@ -207,26 +213,42 @@ class AlertRecorder:
         :return: 统计字典
         """
         try:
-            query = f"""
+            cur = self.conn.cursor()
+            cur.execute("""
                 SELECT
                     COUNT(*) as total_alerts,
                     COUNT(DISTINCT code) as unique_codes,
                     AVG(score) as avg_score,
                     COUNT(CASE WHEN direction = 'buy' THEN 1 END) as buy_signals,
                     COUNT(CASE WHEN direction = 'sell' THEN 1 END) as sell_signals
-                FROM alerts
-                WHERE time >= datetime('now', '-{hours} hours')
-            """
-            result = self.conn.execute(query).fetchone()
+                FROM monitor_alerts
+                WHERE time >= NOW() - INTERVAL '%s hours'
+            """, [hours])
+
+            result = cur.fetchone()
 
             return {
-                "total_alerts": result[0],
-                "unique_codes": result[1],
-                "avg_score": result[2],
-                "buy_signals": result[3],
-                "sell_signals": result[4],
+                "total_alerts": result[0] or 0,
+                "unique_codes": result[1] or 0,
+                "avg_score": float(result[2]) if result[2] else 0.0,
+                "buy_signals": result[3] or 0,
+                "sell_signals": result[4] or 0,
             }
 
         except Exception as e:
             logger.error(f"Failed to get alert summary: {e}")
             return {}
+
+
+# ============================================================
+# 兼容层：保留 DuckDB 风格的函数
+# ============================================================
+
+def get_alert_db_path() -> Path:
+    """兼容函数"""
+    return Path("postgresql:monitor_alerts")
+
+
+def get_alert_db_connection():
+    """兼容函数"""
+    return _get_pg_conn()

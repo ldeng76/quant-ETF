@@ -1,13 +1,27 @@
 {% extends "base.html" %}
 {% block title %}策略执行 - 量化ETF看板{% endblock %}
 {% block content %}
-<div class="py-3" x-data="{ runIds: [], polling: false }">
+<div class="py-3" x-data="{ runIds: [], polling: false, barInterval: '1d' }">
     <h4><i class="bi bi-bar-chart"></i> 策略执行</h4>
     <hr>
 
     <div class="card mb-3">
         <div class="card-body">
             <h5 class="card-title">选择策略</h5>
+
+            <div class="mb-2 d-flex align-items-center gap-2">
+                <label class="form-label mb-0 small">K线周期:</label>
+                <select class="form-select form-select-sm" style="width:auto" x-model="barInterval" id="bar-interval">
+                    <option value="1d" selected>日线</option>
+                    <option value="60m">60分钟</option>
+                    <option value="30m">30分钟</option>
+                    <option value="15m">15分钟</option>
+                </select>
+                <span class="text-warning small" x-show="barInterval !== '1d'" x-cloak>
+                    ⚠ 分钟周期需要先回填数据，请确保已运行 `quant-etf minute-backfill`
+                </span>
+            </div>
+
             <div id="strategy-list">
                 <div class="spinner-border spinner-border-sm"></div> 加载策略列表...
             </div>
@@ -21,7 +35,7 @@
                         fetch('/api/strategy/run', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({strategies: strategies})
+                            body: JSON.stringify({strategies: strategies, bar_interval: barInterval})
                         })
                         .then(r => r.json())
                         .then(data => {

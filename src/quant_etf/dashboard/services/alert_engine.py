@@ -54,14 +54,14 @@ class AlertEngine:
             prev_map = {}
             for item in prev_result:
                 code = item.get("code")
-                score = item.get("score") or item.get("weight") or 0
-                if code:
-                    prev_map[code] = float(score)
+                score = self._parse_score(item.get("score") or item.get("weight"))
+                if code and score is not None:
+                    prev_map[code] = score
 
             for item in latest_result:
                 code = item.get("code")
-                score = float(item.get("score") or item.get("weight") or 0)
-                if code and code in prev_map:
+                score = self._parse_score(item.get("score") or item.get("weight"))
+                if code and score is not None and code in prev_map:
                     change = abs(score - prev_map[code])
                     if change > 0.15:
                         return {
@@ -73,10 +73,21 @@ class AlertEngine:
             logger.warning(f"Alert check momentum_shock failed: {e}")
         return None
 
+    def _parse_score(self, value) -> Optional[float]:
+        """解析得分，支持 '54.00%' 或 '54.00' 或 54.0 格式"""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        # 处理字符串格式
+        s = str(value).strip().rstrip("%")
+        try:
+            return float(s) / 100 if "%" in str(value) else float(s)
+        except (ValueError, TypeError):
+            return None
+
     def _check_position_deviation(self, latest_result, prev_result) -> Optional[dict]:
-        """检查持仓偏离目标（预留）
-        需要结合 portfolio 数据，MVP阶段简化为占位
-        """
+        """检查持仓偏离目标（预留）"""
         return None
 
     def check(self, latest_result, prev_result, portfolio_data=None) -> list[dict]:
@@ -95,15 +106,19 @@ class AlertEngine:
                 logger.warning(f"Alert rule '{rule.name}' check failed: {e}")
         return alerts
 
-    def save_alerts(self, alerts: list[dict]) -> list[int]:
-        """保存告警到数据库"""
+    def save_alerts(self, alerts: list[dict], user_id: Optional[int] = None) -> list[int]:
+        """
+        保存告警到数据库
+        user_id: 可选，关联到特定用户；为 None 时表示系统告警（admin 可见）
+        """
         ids = []
         for alert in alerts:
             alert_id = execute(
                 """INSERT INTO alerts_dashboard
-                   (rule_id, alert_type, severity, title, message, data)
-                   VALUES (NULL, ?, ?, ?, ?, ?)""",
+                   (user_id, rule_id, alert_type, severity, title, message, data)
+                   VALUES (%s, NULL, %s, %s, %s, %s, %s)""",
                 [
+                    user_id,
                     alert.get("alert_type", ""),
                     alert.get("severity", "info"),
                     alert.get("title", ""),

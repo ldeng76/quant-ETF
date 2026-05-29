@@ -1,8 +1,10 @@
 """
-市场状态与概览 API
+市场状态与概览 API（多租户版本）
+schedules 表为全局配置，CRUD 需要 admin 权限
+market/status / overview 为读操作，普通用户可访问
 """
 import asyncio
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..template_setup import templates
@@ -10,9 +12,9 @@ from ..db import query, execute, query_one
 from ..models import ScheduleCreate
 from ..services.scheduler import scheduler
 from ..services.strategy_runner import list_available_strategies
-from quant_etf.market_analyzer import get_market_state, MarketType
+from ..deps import get_current_user, require_admin
+from quant_etf.market_analyzer import get_market_state_cached, MarketType
 
-# 策略英文名 → 中文显示名映射
 _STRATEGY_TITLE_MAP = {
     "etf": "ETF 组合",
     "short": "短线股票",
@@ -27,17 +29,18 @@ def _enrich_schedules_with_title(schedules):
         s["strategy_title"] = _STRATEGY_TITLE_MAP.get(s["strategy"], s["strategy"])
     return schedules
 
+
 router = APIRouter(tags=["market"])
 
 
 @router.get("/status", response_class=JSONResponse)
-async def market_status():
-    """市场环境判断 - 基于指数 + ETF 池数据分析"""
-    state = get_market_state()
+async def market_status(user: dict = Depends(get_current_user)):
+    """市场环境判断（使用缓存，TTL 60秒）"""
+    state = get_market_state_cached()
     return {
         "market_type": state.market_type.value,
         "time": state.time.isoformat(),
-        "index_return": round(state.index_return * 100, 3),       # 转百分比
+        "index_return": round(state.index_return * 100, 3),
         "etf_pool_return": round(state.etf_pool_return * 100, 3),
         "volatility": round(state.volatility * 100, 3),
         "trend_strength": round(state.trend_strength * 100, 3),
@@ -49,14 +52,15 @@ async def market_status():
 
 
 @router.get("/overview", response_class=HTMLResponse)
-async def overview_data(request: Request):
+async def overview_data(request: Request, user: dict = Depends(get_current_user)):
     """总览概览数据卡片"""
-    accounts = query("SELECT COUNT(*) as cnt FROM accounts")
+    accounts = query("SELECT COUNT(*) as cnt FROM accounts WHERE user_id = %s", [user["id"]])
     alerts_today = query(
         "SELECT COUNT(*) as cnt FROM alerts_dashboard "
-        "WHERE date(created_at) = date('now')"
+        "WHERE (user_id = %s OR user_id IS NULL) AND date(created_at) = CURRENT_DATE",
+        [user["id"]]
     )
-    schedules = query("SELECT COUNT(*) as cnt FROM schedules WHERE enabled = 1")
+    schedules = query("SELECT COUNT(*) as cnt FROM schedules WHERE enabled = TRUE")
     return templates.TemplateResponse(
         request, "index.html",
         {
@@ -68,8 +72,8 @@ async def overview_data(request: Request):
 
 
 @router.get("/schedules", response_class=HTMLResponse)
-async def list_schedules(request: Request):
-    """列出调度配置（HTML 片段）"""
+async def list_schedules(request: Request, user: dict = Depends(get_current_user)):
+    """列出调度配置（HTML 片段，admin 可管理）"""
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
     _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
@@ -79,11 +83,11 @@ async def list_schedules(request: Request):
 
 
 @router.post("/schedules")
-async def create_schedule(request: Request, data: ScheduleCreate):
-    """创建调度"""
+async def create_schedule(request: Request, data: ScheduleCreate, user: dict = Depends(require_admin)):
+    """创建调度（仅管理员）"""
     sid = execute(
-        "INSERT INTO schedules (strategy, interval) VALUES (?, ?)",
-        [data.strategy, data.interval]
+        "INSERT INTO schedules (strategy, interval, bar_interval) VALUES (%s, %s, %s)",
+        [data.strategy, data.interval, data.bar_interval]
     )
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
     _enrich_schedules_with_title(schedules)
@@ -94,10 +98,10 @@ async def create_schedule(request: Request, data: ScheduleCreate):
 
 
 @router.delete("/schedules/{schedule_id}")
-async def delete_schedule(request: Request, schedule_id: int):
-    """删除调度"""
+async def delete_schedule(request: Request, schedule_id: int, user: dict = Depends(require_admin)):
+    """删除调度（仅管理员）"""
     await scheduler.stop(schedule_id)
-    execute("DELETE FROM schedules WHERE id = ?", [schedule_id])
+    execute("DELETE FROM schedules WHERE id = %s", [schedule_id])
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
     _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
@@ -107,17 +111,18 @@ async def delete_schedule(request: Request, schedule_id: int):
 
 
 @router.post("/schedules/{schedule_id}/toggle")
-async def toggle_schedule(request: Request, schedule_id: int):
-    """启停调度"""
-    s = query_one("SELECT * FROM schedules WHERE id = ?", [schedule_id])
+async def toggle_schedule(request: Request, schedule_id: int, user: dict = Depends(require_admin)):
+    """启停调度（仅管理员）"""
+    s = query_one("SELECT * FROM schedules WHERE id = %s", [schedule_id])
     if not s:
         raise HTTPException(404, "Schedule not found")
     if scheduler.is_running(schedule_id):
         await scheduler.stop(schedule_id)
-        execute("UPDATE schedules SET enabled = 0 WHERE id = ?", [schedule_id])
+        execute("UPDATE schedules SET enabled = 0 WHERE id = %s", [schedule_id])
     else:
-        execute("UPDATE schedules SET enabled = 1 WHERE id = ?", [schedule_id])
-        asyncio.create_task(scheduler.start_loop(schedule_id, s["strategy"], s["interval"]))
+        execute("UPDATE schedules SET enabled = TRUE WHERE id = %s", [schedule_id])
+        bar_interval = s.get("bar_interval", "1d")
+        asyncio.create_task(scheduler.start_loop(schedule_id, s["strategy"], s["interval"], bar_interval))
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
     _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(

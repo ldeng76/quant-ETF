@@ -1,6 +1,22 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
+
+VALID_INTERVALS = {"1d", "15m", "30m", "60m"}
+
+
+class UserModel(BaseModel):
+    """用户模型"""
+    id: int
+    oauth_provider: str
+    oauth_id: str
+    username: str
+    display_name: Optional[str] = ""
+    email: Optional[str] = None
+    avatar_url: Optional[str] = None
+    role: str = "user"  # 'admin' | 'user'
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class AccountCreate(BaseModel):
@@ -47,7 +63,37 @@ class AlertUpdate(BaseModel):
 class ScheduleCreate(BaseModel):
     strategy: str
     interval: int = Field(..., ge=60)  # 最少60秒
+    bar_interval: str = "1d"
+
+    @field_validator("bar_interval")
+    @classmethod
+    def validate_bar_interval(cls, v):
+        if v not in VALID_INTERVALS:
+            raise ValueError(f"bar_interval must be one of {VALID_INTERVALS}")
+        return v
 
 
 class StrategyRunRequest(BaseModel):
     strategies: list[str] = Field(..., min_length=1)
+    bar_interval: str = "1d"
+
+    @field_validator("bar_interval")
+    @classmethod
+    def validate_bar_interval(cls, v):
+        if v not in VALID_INTERVALS:
+            raise ValueError(f"bar_interval must be one of {VALID_INTERVALS}")
+        return v
+
+
+class UserProfileUpdate(BaseModel):
+    display_name: Optional[str] = None
+
+
+class UserExtendRequest(BaseModel):
+    days: int = Field(..., ge=1, le=365)
+
+
+class WatchlistAdd(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
+    name: str = ""
+    notes: str = ""

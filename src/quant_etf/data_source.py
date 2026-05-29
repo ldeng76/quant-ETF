@@ -133,11 +133,16 @@ class ETFDataSource:
     def get_etf_name_map(self) -> dict:
         """
         获取 ETF 代码到名称的映射字典（从 data/meta/stock_code_name.json）
+        懒加载自动补全：新标的自动补充名称
         :return: {code: name}
         """
         if self._etf_name_map is not None:
             return self._etf_name_map
 
+        # 先触发股票名称补全（共用同一文件）
+        self.get_stock_name_map()
+
+        # 加载 ETF 名称
         meta_map = self._load_name_map_from_meta()
         if meta_map:
             logger.info(f"Loaded ETF name map from data/meta/stock_code_name.json ({len(meta_map)} items)")
@@ -150,22 +155,48 @@ class ETFDataSource:
     def get_stock_name_map(self, force_refresh: bool = False) -> dict[str, str]:
         """
         获取 A 股股票代码到名称的映射字典（从 data/meta/stock_code_name.json）
+        懒加载自动补全：新标的自动补充名称
         :param force_refresh: 是否强制刷新缓存
         :return: {code: name}
         """
+        from missing_code_finder import normalize_code
+
         if self._stock_name_map is not None and not force_refresh:
             return self._stock_name_map
 
-        meta_map = self._load_name_map_from_meta()
-        if meta_map:
-            logger.info(f"Loaded stock name map from data/meta/stock_code_name.json ({len(meta_map)} items)")
-            self._stock_name_map = meta_map
-            return meta_map
+        meta_path = self.data_dir / "meta" / "stock_code_name.json"
 
-        logger.warning("No stock name map found in data/meta/stock_code_name.json")
-        return {}
+        # 懒加载自动补全：检查是否有新标的缺失名称
+        if meta_path.exists():
+            existing_codes: set[str] = set()
+            try:
+                items = json.loads(meta_path.read_text(encoding="utf-8"))
+                if isinstance(items, list):
+                    for item in items:
+                        if "code" in item:
+                            existing_codes.add(normalize_code(item["code"]))
+            except Exception:
+                pass
 
+            # 检查是否缺失
+            from quant_etf.conf import ETF_POOL, STOCK_POOL, MID_TERM_STOCK_POOL
+            all_codes = {normalize_code(c) for c in (list(ETF_POOL) + list(STOCK_POOL) + list(MID_TERM_STOCK_POOL))}
+            missing_codes = all_codes - existing_codes
+
+            if missing_codes:
+                logger.info(f"发现 {len(missing_codes)} 个新标的缺少名称，自动补全...")
+                self.backfill_stock_names()
+        else:
+            # 文件不存在，触发全量补全
+            logger.warning("stock_code_name.json 不存在，自动创建...")
+            self.backfill_stock_names()
+
+        # 加载或刷新映射
+        self._stock_name_map = self._load_name_map_from_meta()
+        return self._stock_name_map
     def load_data_batch(self, codes: List[str], check_freshness: bool = True, allow_online: bool = True, adjust_qfq: bool = True, intraday: bool = False, interval: str = "1d") -> Dict[str, pd.DataFrame]:
+
+
         """
         批量加载 ETF 数据（一次 PG 查询）
         优先级：本地 TDX 文件 > PG 缓存批量加载 > 在线获取

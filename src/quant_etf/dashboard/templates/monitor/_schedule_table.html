@@ -3,6 +3,7 @@
     <thead>
         <tr>
             <th>策略</th>
+            <th>周期</th>
             <th>间隔(秒)</th>
             <th>状态</th>
             <th>上次运行</th>
@@ -13,6 +14,7 @@
         {% for s in schedules %}
         <tr>
             <td class="small">{{ s.strategy_title }}</td>
+            <td class="small">{{ {'1d': '日线', '60m': '60分钟', '30m': '30分钟', '15m': '15分钟'}.get(s.bar_interval or '1d', s.bar_interval or '1d') }}</td>
             <td class="small">{{ s.interval }}</td>
             <td>
                 {% if s.running %}
