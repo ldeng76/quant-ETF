@@ -2,22 +2,21 @@
 分钟级K线数据采集器模块
 
 提供获取、存储和管理分钟级K线数据的功能。
-使用 DuckDB 数据库存储。
+使用 PostgreSQL 数据库存储。
 """
 import pandas as pd
 from pathlib import Path
 from loguru import logger
 from datetime import datetime, time, timedelta
 from typing import Optional
-
-import duckdb
+from concurrent.futures import ThreadPoolExecutor
 
 from pytdx.hq import TdxHq_API
 from pytdx.params import TDXParams
-from pytdx.config import hosts
+from pytdx.config.hosts import hq_hosts
 
+from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server
 from quant_etf.conf import DATA_DIR, ALL_POOL
-from quant_etf.tdx import CUSTOM_HQ_HOSTS
 import time as time_module
 import psutil
 import subprocess as _subprocess
@@ -25,12 +24,49 @@ import subprocess as _subprocess
 _server_failures: dict[str, float] = {}
 SERVER_COOLDOWN = 120
 
+# PostgreSQL 同步连接（用于数据存储）
+_pg_conn = None
+
+
+def _get_pg_conn():
+    """获取 PG 同步连接（单例）"""
+    global _pg_conn
+    if _pg_conn is None:
+        import psycopg2
+        from quant_etf.dashboard.config import (
+            POSTGRES_HOST, POSTGRES_PORT,
+            POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
+        )
+        _pg_conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            database=POSTGRES_DB,
+        )
+        logger.info("PostgreSQL connection created for minute collector")
+    return _pg_conn
+
+
+def close_pg_conn():
+    """关闭 PG 连接"""
+    global _pg_conn
+    if _pg_conn:
+        _pg_conn.close()
+        _pg_conn = None
+        logger.info("PostgreSQL connection closed")
+
 
 def get_local_tdx_server() -> tuple[str, int] | None:
     """
     通过本地运行的通达信进程自动发现行情服务器地址
     :return: (ip, port) 元组，如果未找到则返回 None
     """
+    # 先查共享缓存
+    cached = _get_cached_server()
+    if cached:
+        return cached
+
     # 查找通达信主进程 PID
     tdx_pid = None
     for proc in psutil.process_iter(["pid", "name"]):
@@ -60,7 +96,7 @@ def get_local_tdx_server() -> tuple[str, int] | None:
                 if len(parts) >= 3 and parts[3] == "ESTABLISHED":
                     remote = parts[2]
                     ip, port = remote.rsplit(":", 1)
-                    logger.info(f"Discovered TDX server from local process: {ip}:{port}")
+                    _set_cached_server(ip, port)
                     return ip, int(port)
     except Exception as e:
         logger.debug(f"Failed to discover TDX server from local process: {e}")
@@ -82,6 +118,42 @@ def code_to_market(code: str) -> int:
         return TDXParams.MARKET_SZ
 
 
+def _normalize_bar_data(raw_data: list[dict]) -> list[dict]:
+    """为 pytdx 返回的数据添加 time 字段（datetime 对象），供 cli.py 过滤使用"""
+    if not raw_data:
+        return []
+    result = []
+    for b in raw_data:
+        if isinstance(b, dict) and "year" in b:
+            b["time"] = datetime(
+                year=b["year"], month=b["month"], day=b["day"],
+                hour=b.get("hour", 0), minute=b.get("minute", 0)
+            )
+        result.append(b)
+    return result
+
+
+_MAX_BARS_PER_CALL = 800
+
+
+def _fetch_bars_paginated(api, market: int, code: str, count: int) -> list[dict]:
+    """通过分页从已连接的 api 获取分钟 K 线，单次最多 800 条"""
+    all_bars: list[dict] = []
+    fetched = 0
+    while fetched < count:
+        batch_size = min(_MAX_BARS_PER_CALL, count - fetched)
+        data = api.get_security_bars(
+            category=8, market=market, code=code, start=fetched, count=batch_size
+        )
+        if not data:
+            break
+        all_bars.extend(data)
+        fetched += len(data)
+        if len(data) < batch_size:
+            break
+    return _normalize_bar_data(all_bars)
+
+
 def get_minute_bars(
     code: str,
     count: int = 500,
@@ -90,297 +162,136 @@ def get_minute_bars(
     max_servers: int = 5,
 ) -> list[dict]:
     """
-    获取证券的分钟级K线数据
+    获取证券的分钟级K线数据（支持分页，count 可超过 800）
     :param code: 证券代码 (e.g. "510050", "000001")
-    :param count: 获取数量（每次最多约 500 条）
+    :param count: 获取数量
     :param server: 行情服务器 IP（如果为 None，则自动尝试多个服务器）
     :param port: 行情服务器端口
     :param max_servers: 最多尝试的服务器数量
     :return: list of dicts 包含分钟级K线数据
     """
+    api = TdxHq_API()
     market = code_to_market(code)
 
-    if server is not None:
-        return _get_minute_bars_single_server(code, market, count, server, port)
+    # 如果未指定服务器，使用自动发现
+    if server is None:
+        discovered = get_local_tdx_server()
+        if discovered:
+            server, port = discovered
+            try:
+                if api.connect(server, port):
+                    time_module.sleep(0.5)
+                    data = _fetch_bars_paginated(api, market, code, count)
+                    api.disconnect()
+                    return data
+            except Exception as e:
+                logger.warning(f"Local TDX server failed: {e}")
 
-    # Priority 1: Try server discovered from local TDX process
-    local_server = get_local_tdx_server()
-    if local_server:
-        ls_ip, ls_port = local_server
-        server_key = f"{ls_ip}:{ls_port}"
-        current_time = time_module.time()
-        # Only skip if recently failed
-        if server_key not in _server_failures or current_time - _server_failures[server_key] >= SERVER_COOLDOWN:
-            result = _get_minute_bars_single_server(code, market, count, ls_ip, ls_port)
-            if result:
-                if server_key in _server_failures:
-                    del _server_failures[server_key]
-                return result
-            else:
-                _server_failures[server_key] = current_time
-                logger.warning(f"Local TDX server {server_key} failed, falling back to configured list")
-
-    current_time = time_module.time()
-
-    hq_hosts = CUSTOM_HQ_HOSTS + list(hosts.hq_hosts)[:max_servers]
-    available_servers = []
-
-    for host_info in hq_hosts:
-        if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
-            try_server = str(host_info[1])
-            try_port = int(host_info[2])
-        elif isinstance(host_info, dict):
-            try_server = host_info["ip"]
-            try_port = int(host_info["port"])
-        else:
-            continue
-
-        server_key = f"{try_server}:{try_port}"
-        if server_key in _server_failures:
-            fail_time = _server_failures[server_key]
-            if current_time - fail_time < SERVER_COOLDOWN:
-                remaining = int(SERVER_COOLDOWN - (current_time - fail_time))
-                logger.debug(f"Server {server_key} is cooling down, {remaining}s remaining")
+        # 使用配置的服务器列表
+        for host_info in hq_hosts[:max_servers]:
+            try:
+                host_ip = host_info[1]
+                host_port = host_info[2]
+                if api.connect(host_ip, host_port):
+                    time_module.sleep(0.5)
+                    data = _fetch_bars_paginated(api, market, code, count)
+                    api.disconnect()
+                    return data
+            except Exception as e:
+                logger.debug(f"Trying {host_info[1]}:{host_info[2]} failed: {e}")
                 continue
-            else:
-                del _server_failures[server_key]
 
-        available_servers.append((try_server, try_port))
+        return []
 
-    for try_server, try_port in available_servers:
-        server_key = f"{try_server}:{try_port}"
-        result = _get_minute_bars_single_server(code, market, count, try_server, try_port)
-        if result:
-            if server_key in _server_failures:
-                del _server_failures[server_key]
-                logger.info(f"Server {server_key} recovered, removed from failure list")
-            return result
-        else:
-            _server_failures[server_key] = current_time
-            logger.warning(f"Server {server_key} failed, pausing for {SERVER_COOLDOWN}s")
+    # 使用指定的服务器
+    try:
+        if api.connect(server, port):
+            time_module.sleep(0.5)
+            data = _fetch_bars_paginated(api, market, code, count)
+            api.disconnect()
+            return data
+    except Exception as e:
+        logger.error(f"Failed to get minute bars for {code}: {e}")
 
-    logger.warning(f"Failed to fetch minute bars for {code} from all servers")
     return []
 
 
-def _get_minute_bars_single_server(
-    code: str,
-    market: int,
-    count: int,
-    server: str,
-    port: int,
-) -> list[dict]:
+def collect_for_pool(
+    codes: list[str],
+    count: int = 500,
+    server: Optional[str] = None,
+    port: int = 7709,
+    max_servers: int = 5,
+) -> dict[str, list[dict]]:
     """
-    从单个服务器获取分钟级K线数据（分批获取）
-    :return: list of dicts 包含分钟级K线数据
+    批量获取多个证券的分钟K线数据
+    :param codes: 证券代码列表
+    :param count: 每个证券获取数量
+    :param server: 服务器 IP
+    :param port: 服务器端口
+    :param max_servers: 最大服务器尝试数
+    :return: {code: data_list} 字典
     """
-    try:
-        api = TdxHq_API(auto_retry=True, heartbeat=False)
-        if not api.connect(server, port):
-            logger.debug(f"Failed to connect to TDX HQ server {server}:{port}")
-            return []
+    result = {}
 
-        try:
-            # pytdx 单次最多返回约 800 条，分批获取
-            batch_size = 500
-            all_bars = []
-            for start in range(0, count, batch_size):
-                n = min(batch_size, count - start)
-                bars = api.get_security_bars(8, market, code, start, n)
-                if not bars:
-                    break
-                all_bars.extend(bars)
+    # 使用线程池并发获取
+    def fetch_one(code: str) -> tuple[str, list[dict]]:
+        data = get_minute_bars(code, count, server, port, max_servers)
+        return code, data
 
-            if not all_bars:
-                logger.debug(f"No minute bars returned for {code} from {server}:{port}")
-                return []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(fetch_one, code) for code in codes]
+        for future in futures:
+            code, data = future.result()
+            if data:
+                result[code] = data
 
-            data = []
-            for bar in all_bars:
-                dt = bar.get("datetime", "")
-                if dt:
-                    try:
-                        dt = pd.to_datetime(dt)
-                    except:
-                        pass
-                    data.append({
-                        "time": dt,
-                        "open": float(bar.get("open", 0)),
-                        "high": float(bar.get("high", 0)),
-                        "low": float(bar.get("low", 0)),
-                        "close": float(bar.get("close", 0)),
-                        "volume": int(bar.get("vol", 0)) if bar.get("vol") else 0,
-                        "amount": float(bar.get("amount", 0)) if bar.get("amount") else 0.0,
-                    })
-
-            data.sort(key=lambda x: x["time"] if x.get("time") else "")
-            logger.info(f"Successfully fetched {len(data)} minute bars for {code} from {server}:{port}")
-            return data
-
-        finally:
-            api.disconnect()
-
-    except Exception as e:
-        logger.debug(f"Failed to get minute bars from {server}:{port}: {e}")
-        return []
+    return result
 
 
-def is_trading_time() -> bool:
-    """
-    判断当前是否为A股交易时间段
-    :return: True 如果当前在交易时间段内，否则 False
-    """
-    now = datetime.now()
-
-    weekday = now.weekday()
-    if weekday >= 5:
-        return False
-
-    current_time = now.time()
-
-    morning_start = time(9, 30)
-    morning_end = time(11, 30)
-    afternoon_start = time(13, 0)
-    afternoon_end = time(15, 0)
-
-    if morning_start <= current_time <= morning_end:
-        return True
-    if afternoon_start <= current_time <= afternoon_end:
-        return True
-
-    return False
-
-
-def get_next_trading_time() -> datetime:
-    """
-    获取下一个交易时间段的开始时间
-    :return: 下一个交易时段的开始时间
-    """
-    now = datetime.now()
-    current_time = now.time()
-    weekday = now.weekday()
-
-    if weekday < 5:
-        morning_start = time(9, 30)
-        afternoon_start = time(13, 0)
-
-        if current_time < morning_start:
-            return now.replace(hour=9, minute=30, second=0, microsecond=0)
-        elif current_time < afternoon_start:
-            return now.replace(hour=13, minute=0, second=0, microsecond=0)
-        elif current_time < time(15, 0):
-            return now.replace(hour=13, minute=0, second=0, microsecond=0)
-
-    next_day = now + timedelta(days=1)
-    while next_day.weekday() >= 5:
-        next_day += timedelta(days=1)
-
-    return next_day.replace(hour=9, minute=30, second=0, microsecond=0)
-
-
-def wait_until_trading_start(check_interval: int = 60, should_stop=None) -> bool:
-    """
-    等待直到交易时间开始
-    :param check_interval: 检查间隔（秒）
-    :param should_stop: 可选的回调函数，返回 True 时中断等待
-    :return: True 如果进入交易时间，False 如果被中断
-    """
-    import time as time_module
-
-    logger.info("Waiting for trading session to start...")
-
-    while not is_trading_time():
-        if should_stop and should_stop():
-            logger.info("Shutdown requested, stopping wait...")
-            return False
-
-        next_time = get_next_trading_time()
-        wait_seconds = (next_time - datetime.now()).total_seconds()
-
-        if wait_seconds > 0:
-            logger.info(f"Next trading session starts at {next_time}, waiting {wait_seconds:.0f} seconds...")
-            sleep_duration = min(wait_seconds, check_interval)
-            # 分段睡眠，方便响应中断
-            for _ in range(int(sleep_duration)):
-                if should_stop and should_stop():
-                    logger.info("Shutdown requested, stopping wait...")
-                    return False
-                time_module.sleep(1)
-        else:
-            time_module.sleep(check_interval)
-
-    logger.info("Trading session started!")
-    return True
-
-
-def get_minute_db_path() -> Path:
-    """
-    获取分钟数据数据库文件路径
-    :return: 数据库文件路径
-    """
-    minute_dir = DATA_DIR / "minute"
-    minute_dir.mkdir(parents=True, exist_ok=True)
-    return minute_dir / "minute_data.duckdb"
-
-
-def init_minute_db() -> duckdb.DuckDBPyConnection:
-    """
-    初始化分钟数据数据库，创建表结构
-    :return: 数据库连接
-    """
-    db_path = get_minute_db_path()
-    conn = duckdb.connect(str(db_path))
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS minute_bars (
-            code VARCHAR,
-            time TIMESTAMP,
-            open DOUBLE,
-            high DOUBLE,
-            low DOUBLE,
-            close DOUBLE,
-            volume BIGINT,
-            amount DOUBLE,
-            year INTEGER,
-            month INTEGER,
-            day INTEGER,
-            hour INTEGER,
-            minute INTEGER,
-            PRIMARY KEY (code, time)
-        )
-    """)
-
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_code_time ON minute_bars(code, time)
-    """)
-
-    logger.info(f"Initialized minute data database: {db_path}")
-    return conn
-
-
-def get_db_connection() -> duckdb.DuckDBPyConnection:
-    """
-    获取数据库连接（单例模式）
-    :return: 数据库连接
-    """
-    if not hasattr(get_db_connection, "_conn"):
-        get_db_connection._conn = init_minute_db()
-    return get_db_connection._conn
+def get_db_connection():
+    """兼容函数，返回 PG 连接"""
+    return _get_pg_conn()
 
 
 def close_db_connection():
-    """
-    关闭数据库连接
-    """
-    if hasattr(get_db_connection, "_conn"):
-        get_db_connection._conn.close()
-        delattr(get_db_connection, "_conn")
-        logger.info("Closed minute data database connection")
+    """关闭数据库连接"""
+    close_pg_conn()
+
+
+def init_minute_db():
+    """初始化分钟数据数据库（PG 不需要初始化，确保表存在即可）"""
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS minute_bars (
+            code        VARCHAR(20) NOT NULL,
+            time        TIMESTAMP NOT NULL,
+            open        NUMERIC(18, 4),
+            high        NUMERIC(18, 4),
+            low         NUMERIC(18, 4),
+            close       NUMERIC(18, 4),
+            volume      BIGINT,
+            amount      NUMERIC(18, 2),
+            year        INTEGER,
+            month       INTEGER,
+            day         INTEGER,
+            hour        INTEGER,
+            minute      INTEGER,
+            PRIMARY KEY (code, time)
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_minute_bars_code ON minute_bars(code)
+    """)
+    conn.commit()
+    logger.info("Ensured minute_bars table exists")
+    return conn
 
 
 def save_minute_data(code: str, df: pd.DataFrame) -> bool:
     """
-    保存分钟数据到 DuckDB 数据库
+    保存分钟数据到 PostgreSQL 数据库
     :param code: 证券代码
     :param df: 包含分钟数据的 DataFrame
     :return: 是否保存成功
@@ -389,11 +300,15 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
         return False
 
     try:
-        conn = get_db_connection()
+        conn = _get_pg_conn()
 
         df = df.reset_index()
         if "time" not in df.columns:
             return False
+
+        # pytdx 返回的列名是 vol，统一为 volume
+        if "vol" in df.columns and "volume" not in df.columns:
+            df.rename(columns={"vol": "volume"}, inplace=True)
 
         data = []
         for row in df.itertuples(index=False):
@@ -419,13 +334,21 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
         if not data:
             return False
 
-        conn.executemany("""
-            INSERT OR REPLACE INTO minute_bars
-            (code, time, open, high, low, close, volume, amount, year, month, day, hour, minute)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cur = conn.cursor()
+        cur.executemany("""
+            INSERT INTO minute_bars (code, time, open, high, low, close, volume, amount, year, month, day, hour, minute)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (code, time) DO UPDATE SET
+                open = EXCLUDED.open,
+                high = EXCLUDED.high,
+                low = EXCLUDED.low,
+                close = EXCLUDED.close,
+                volume = EXCLUDED.volume,
+                amount = EXCLUDED.amount
         """, data)
+        conn.commit()
 
-        logger.debug(f"Saved {len(data)} minute bars for {code} to DuckDB")
+        logger.debug(f"Saved {len(data)} minute bars for {code}")
         return True
 
     except Exception as e:
@@ -435,151 +358,211 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
 
 def save_minute_data_from_dicts(code: str, data: list[dict]) -> bool:
     """
-    保存分钟数据到 DuckDB 数据库 (使用 DuckDB from_df)
+    保存分钟数据到 PostgreSQL 数据库（使用 dict list）
     :param code: 证券代码
-    :param data: list of dicts 包含分钟数据
+    :param data: 包含分钟数据的 dict list
     :return: 是否保存成功
     """
     if not data:
         return False
 
     try:
-        conn = get_db_connection()
-
         df = pd.DataFrame(data)
-        if df.empty:
-            return False
-
-        df["time"] = pd.to_datetime(df["time"])
-        df["code"] = code
-        df["year"] = df["time"].dt.year
-        df["month"] = df["time"].dt.month
-        df["day"] = df["time"].dt.day
-        df["hour"] = df["time"].dt.hour
-        df["minute"] = df["time"].dt.minute
-
-        columns = ["code", "time", "open", "high", "low", "close", "volume", "amount", "year", "month", "day", "hour", "minute"]
-        df = df[columns]
-
-        conn.execute("""
-            INSERT OR REPLACE INTO minute_bars
-            (code, time, open, high, low, close, volume, amount, year, month, day, hour, minute)
-            SELECT code, time, open, high, low, close, volume, amount, year, month, day, hour, minute
-            FROM df
-        """)
-
-        logger.debug(f"Saved {len(df)} minute bars for {code} to DuckDB")
-        return True
-
+        if "time" in df.columns and "datetime" in str(df["time"].dtype):
+            df["time"] = pd.to_datetime(df["time"])
+        return save_minute_data(code, df)
     except Exception as e:
-        logger.error(f"Failed to save minute data for {code}: {e}")
+        logger.error(f"Failed to save minute data from dicts for {code}: {e}")
         return False
 
 
-def load_minute_data(
-    code: Optional[str] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: int = 1000,
+def query_minute_data(
+    code: str,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    limit: int = 5000,
 ) -> pd.DataFrame:
     """
-    从 DuckDB 数据库加载分钟数据
-    :param code: 证券代码（可选，None表示所有证券）
-    :param start_time: 开始时间（可选）
-    :param end_time: 结束时间（可选）
-    :param limit: 返回最大行数
-    :return: 包含分钟数据的 DataFrame
+    从 PostgreSQL 数据库加载分钟数据
+    :param code: 证券代码
+    :param start: 开始时间
+    :param end: 结束时间
+    :param limit: 限制数量
+    :return: DataFrame
     """
-    try:
-        conn = get_db_connection()
+    conn = _get_pg_conn()
 
-        query = "SELECT * FROM minute_bars WHERE 1=1"
-        params = []
+    conditions = ["code = %s"]
+    params = [code]
 
-        if code:
-            query += " AND code = ?"
-            params.append(code)
+    if start:
+        conditions.append("time >= %s")
+        params.append(start)
+    if end:
+        conditions.append("time <= %s")
+        params.append(end)
 
-        if start_time:
-            query += " AND time >= ?"
-            params.append(start_time)
+    query = f"""
+        SELECT time, open, high, low, close, volume, amount
+        FROM minute_bars
+        WHERE {' AND '.join(conditions)}
+        ORDER BY time
+        LIMIT %s
+    """
+    params.append(limit)
 
-        if end_time:
-            query += " AND time <= ?"
-            params.append(end_time)
+    cur = conn.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
 
-        query += " ORDER BY time DESC LIMIT ?"
-        params.append(limit)
-
-        df = conn.execute(query, params).df()
-        df.set_index("time", inplace=True)
-        df.sort_index(inplace=True)
-
-        return df
-
-    except Exception as e:
-        logger.error(f"Failed to load minute data: {e}")
+    if not rows:
         return pd.DataFrame()
 
+    df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume", "amount"])
+    df["time"] = pd.to_datetime(df["time"])
+    df.set_index("time", inplace=True)
 
-def query_minute_data(sql: str) -> pd.DataFrame:
+    return df
+
+
+def load_minute_data(
+    code: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    limit: int = 5000,
+) -> pd.DataFrame:
+    """兼容层：调用 query_minute_data 并返回 DataFrame（供 cli.py minute-backfill 使用）"""
+    return query_minute_data(code, start=start_time, end=end_time, limit=limit)
+
+
+def get_latest_minute_time(code: str) -> Optional[datetime]:
     """
-    直接执行 SQL 查询分钟数据
-    :param sql: SQL 查询语句
-    :return: 查询结果 DataFrame
+    获取某证券最新一条分钟数据的时间
+    :param code: 证券代码
+    :return: 最新时间
     """
-    try:
-        conn = get_db_connection()
-        return conn.execute(sql).df()
-    except Exception as e:
-        logger.error(f"Failed to execute query: {e}")
-        return pd.DataFrame()
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(time) FROM minute_bars WHERE code = %s", [code])
+    result = cur.fetchone()
+    return result[0] if result and result[0] else None
 
 
-def collect_minute_data_for_all(
-    codes: list[str],
-    count: int = 500,
-) -> dict[str, int]:
+def get_codes_in_db() -> list[str]:
     """
-    采集所有指定证券的分钟数据
-    :param codes: 证券代码列表
-    :param count: 获取的分钟数量
-    :return: 采集结果统计 {"success": int, "failed": int}
+    获取数据库中已有数据的证券代码列表
+    :return: 代码列表
     """
-    success_count = 0
-    failed_count = 0
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT code FROM minute_bars ORDER BY code")
+    return [row[0] for row in cur.fetchall()]
 
-    for code in codes:
-        try:
-            data = get_minute_bars(code, count)
-            if data:
-                if save_minute_data_from_dicts(code, data):
-                    success_count += 1
-                    logger.info(f"Collected {len(data)} minute bars for {code}")
-                else:
-                    failed_count += 1
-            else:
-                failed_count += 1
-        except Exception as e:
-            logger.error(f"Error collecting minute data for {code}: {e}")
-            failed_count += 1
 
-    result = {"success": success_count, "failed": failed_count}
-    logger.info(f"Minute data collection completed: {result}")
-    return result
+def delete_minute_data(code: str, before: Optional[datetime] = None) -> int:
+    """
+    删除指定证券的分钟数据
+    :param code: 证券代码
+    :param before: 删除此时间之前的数据（不指定则删除全部）
+    :return: 删除的行数
+    """
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+
+    if before:
+        cur.execute("DELETE FROM minute_bars WHERE code = %s AND time < %s", [code, before])
+    else:
+        cur.execute("DELETE FROM minute_bars WHERE code = %s", [code])
+
+    conn.commit()
+    deleted = cur.rowcount
+    logger.info(f"Deleted {deleted} rows for {code}")
+    return deleted
+
+
+def clean_expired_minute_data(retain_months: int = 6, dry_run: bool = False) -> dict:
+    """
+    清理 minute_bars 表中的过期数据
+
+    :param retain_months: 保留最近几个月的数据，默认6个月
+    :param dry_run: True 时仅统计不删除
+    :return: 统计信息 dict {total_before, total_after, deleted, codes_affected}
+    """
+    conn = _get_pg_conn()
+    cur = conn.cursor()
+
+    cutoff_time = datetime.now() - timedelta(days=retain_months * 30)
+
+    cur.execute("SELECT COUNT(*) FROM minute_bars")
+    total_before = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(DISTINCT code) FROM minute_bars")
+    codes_total = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM minute_bars WHERE time < %s", (cutoff_time,))
+    expired_count = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(DISTINCT code) FROM minute_bars WHERE time < %s", (cutoff_time,))
+    codes_affected = cur.fetchone()[0]
+
+    logger.info(f"Minute data cleanup summary:")
+    logger.info(f"  Cutoff time: {cutoff_time}")
+    logger.info(f"  Total rows before: {total_before}")
+    logger.info(f"  Expired rows: {expired_count}")
+    logger.info(f"  Codes affected: {codes_affected}/{codes_total}")
+
+    if dry_run:
+        logger.info("  [DRY RUN] No data deleted")
+        return {
+            "total_before": total_before,
+            "total_after": total_before,
+            "deleted": 0,
+            "codes_affected": codes_affected,
+            "cutoff_time": cutoff_time,
+        }
+
+    if expired_count > 0:
+        cur.execute("DELETE FROM minute_bars WHERE time < %s", (cutoff_time,))
+        conn.commit()
+        deleted = cur.rowcount
+        logger.info(f"  Deleted {deleted} rows")
+    else:
+        deleted = 0
+        logger.info("  No expired data to delete")
+
+    cur.execute("SELECT COUNT(*) FROM minute_bars")
+    total_after = cur.fetchone()[0]
+
+    return {
+        "total_before": total_before,
+        "total_after": total_after,
+        "deleted": deleted,
+        "codes_affected": codes_affected,
+        "cutoff_time": cutoff_time,
+    }
+
+
+def test_minute_data_collection():
+    """测试分钟数据采集"""
+    from quant_etf.conf import ALL_POOL
+
+    logger.info("Testing minute data collector with PostgreSQL...")
+
+    # 初始化表
+    init_minute_db()
+
+    # 测试获取数据
+    test_codes = ALL_POOL[:3]
+    result = collect_for_pool(test_codes, count=500)
+
+    for code, data in result.items():
+        if data:
+            df = pd.DataFrame(data)
+            df["time"] = pd.to_datetime(df["time"])
+            df.set_index("time", inplace=True)
+            save_minute_data(code, df)
+            logger.info(f"Saved {len(df)} bars for {code}")
 
 
 if __name__ == "__main__":
-    logger.info("Testing minute data collector with DuckDB...")
-
-    test_code = "510050"
-    df = get_minute_bars(test_code)
-    logger.info(f"Got {len(df)} minute bars for {test_code}")
-
-    if not df.empty:
-        save_minute_data(test_code, df)
-        logger.info("Data saved to DuckDB")
-
-        loaded = load_minute_data(code=test_code, limit=10)
-        logger.info(f"Loaded {len(loaded)} rows from DuckDB")
-        logger.info(loaded)
+    test_minute_data_collection()
