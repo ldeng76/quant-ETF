@@ -55,7 +55,6 @@ def get_local_tdx_server() -> tuple[str, int] | None:
                 if len(parts) >= 3 and parts[3] == "ESTABLISHED":
                     remote = parts[2]
                     ip, port = remote.rsplit(":", 1)
-                    logger.info(f"Discovered TDX server from local process: {ip}:{port}")
                     return ip, int(port)
     except Exception as e:
         logger.debug(f"Failed to discover TDX server from local process: {e}")
