@@ -92,12 +92,13 @@ def get_local_tdx_server() -> tuple[str, int] | None:
         )
         if result.stdout.strip():
             for line in result.stdout.strip().split("\n"):
-            if len(parts) >= 3 and parts[3] == "ESTABLISHED":
-                remote = parts[2]
-                ip, port_str = remote.rsplit(":", 1)
-                port = int(port_str)
-                _set_cached_server(ip, port)
-                return ip, port
+                if len(parts) >= 3 and parts[3] == "ESTABLISHED":
+                    remote = parts[2]
+                    ip, port_str = remote.rsplit(":", 1)
+                    port = int(port_str)
+                    _set_cached_server(ip, port)
+                    return ip, port
+    except Exception as e:
         logger.debug(f"Failed to discover TDX server from local process: {e}")
 
     return None
