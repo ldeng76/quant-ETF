@@ -24,7 +24,19 @@ output/
 # Claude Code
 .memsearch/
 
-goose_update_temp/
 
 # Local wiki
 .qoder/repowiki/
+
+# Local wiki
+.qoder/
+.understand-anything/
+
+# Credentials and secrets
+.env
+cookies.txt
+
+# Local scripts
+fix_placeholder.py
+test_execute.py
+nul
