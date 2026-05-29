@@ -173,6 +173,35 @@ def get_minute_bars(
     api = TdxHq_API()
     market = code_to_market(code)
 
+    # 如果未指定服务器，使用自动发现
+    if server is None:
+        discovered = get_local_tdx_server()
+        if discovered:
+            server, port = discovered
+            try:
+                if api.connect(server, port):
+                    time_module.sleep(0.5)
+                    data = _fetch_bars_paginated(api, market, code, count)
+                    api.disconnect()
+                    return data
+            except Exception as e:
+                logger.warning(f"Local TDX server failed: {e!r}")
+
+        # 使用配置的服务器列表
+        for host_info in hq_hosts[:max_servers]:
+            try:
+                host_ip = host_info[1]
+                host_port = host_info[2]
+                if api.connect(host_ip, host_port):
+                    time_module.sleep(0.5)
+                    data = _fetch_bars_paginated(api, market, code, count)
+                    api.disconnect()
+                    return data
+            except Exception as e:
+                logger.debug(f"Trying {host_info[1]}:{host_info[2]} failed: {e}")
+                continue
+
+        return []
 
     # 使用指定的服务器
     try:
@@ -185,6 +214,7 @@ def get_minute_bars(
         logger.error(f"Failed to get minute bars for {code}: {e}")
 
     return []
+
 
 
 def collect_for_pool(
