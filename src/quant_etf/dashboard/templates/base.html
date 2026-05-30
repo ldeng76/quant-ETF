@@ -21,6 +21,7 @@
         .htmx-indicator { opacity: 0; transition: opacity .3s; }
         .htmx-request .htmx-indicator { opacity: 1; }
         .htmx-request.htmx-indicator { opacity: 1; }
+        [x-cloak] { display: none !important; }
     </style>
 </head>
 <body>
@@ -181,6 +182,13 @@
                 if (statusBadge) { statusBadge.textContent = '已连接'; statusBadge.className = 'badge bg-success small'; }
             };
         })();
+
+        // HTMX 交换后重新初始化 Alpine.js
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.detail.target && window.Alpine) {
+                window.Alpine.initTree(evt.detail.target);
+            }
+        });
 
         // HTMX 事件监听
         document.addEventListener('htmx:beforeSwap', function(evt) {

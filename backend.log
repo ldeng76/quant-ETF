@@ -1,0 +1,111 @@
+INFO:     Started server process [71008]
+INFO:     Waiting for application startup.
+[32m2026-05-29 16:05:43.733[0m | [1mINFO    [0m | [36mquant_etf.dashboard.app[0m:[36mstartup[0m:[36m75[0m - [1mDashboard starting...[0m
+[32m2026-05-29 16:05:43.823[0m | [1mINFO    [0m | [36mquant_etf.dashboard.db[0m:[36minit_db[0m:[36m458[0m - [1mPostgreSQL schema initialized[0m
+[32m2026-05-29 16:05:43.904[0m | [1mINFO    [0m | [36mquant_etf.dashboard.db_migrate[0m:[36mrun_migrations[0m:[36m81[0m - [1mCurrent schema version: 10[0m
+[32m2026-05-29 16:05:43.981[0m | [1mINFO    [0m | [36mquant_etf.dashboard.db_migrate[0m:[36mrun_migrations[0m:[36m100[0m - [1mSchema migration complete. Now at version: 10[0m
+[32m2026-05-29 16:05:43.990[0m | [1mINFO    [0m | [36mquant_etf.dashboard.app[0m:[36mstartup[0m:[36m81[0m - [1mDatabase initialized[0m
+E:\mw3\wspy\2025\quant-ETF\src\quant_etf\dashboard\app.py:88: RuntimeWarning: coroutine 'Scheduler.start_all' was never awaited
+  scheduler.start_all()
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+[32m2026-05-29 16:05:43.992[0m | [1mINFO    [0m | [36mquant_etf.dashboard.app[0m:[36mstartup[0m:[36m89[0m - [1mScheduler started[0m
+[32m2026-05-29 16:05:43.992[0m | [1mINFO    [0m | [36mquant_etf.dashboard.services.startup_preload[0m:[36mpreload_market_state[0m:[36m24[0m - [1mPreloading market state...[0m
+[32m2026-05-29 16:05:43.992[0m | [1mINFO    [0m | [36mquant_etf.dashboard.services.startup_preload[0m:[36mstart_background_preload[0m:[36m61[0m - [1mBackground preload thread started[0m
+[32m2026-05-29 16:05:43.992[0m | [1mINFO    [0m | [36mquant_etf.dashboard.app[0m:[36mstartup[0m:[36m99[0m - [1mDashboard ready on http://127.0.0.1:8522[0m
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8522 (Press CTRL+C to quit)
+[32m2026-05-29 16:05:44.260[0m | [1mINFO    [0m | [36mquant_etf.market_analyzer[0m:[36mget_market_state_cached[0m:[36m360[0m - [1mLoaded market state from database snapshot[0m
+[32m2026-05-29 16:05:44.260[0m | [34m[1mDEBUG   [0m | [36mquant_etf.market_analyzer[0m:[36mset[0m:[36m68[0m - [34m[1mMarket state cached (TTL: 240s)[0m
+[32m2026-05-29 16:05:44.260[0m | [1mINFO    [0m | [36mquant_etf.dashboard.services.startup_preload[0m:[36mpreload_market_state[0m:[36m26[0m - [1mMarket state preloaded: Œ¥÷™, return=0.000, volatility=0.000[0m
+[32m2026-05-29 16:05:44.260[0m | [1mINFO    [0m | [36mquant_etf.minute_fill[0m:[36mensure_minute_data_ready[0m:[36m307[0m - [1mensure_minute_data_ready: starting ETF minute fill...[0m
+[32m2026-05-29 16:05:44.359[0m | [1mINFO    [0m | [36mquant_etf.minute_collector[0m:[36m_get_pg_conn[0m:[36m47[0m - [1mPostgreSQL connection created for minute collector[0m
+[32m2026-05-29 16:05:44.425[0m | [1mINFO    [0m | [36mquant_etf.tdx[0m:[36m_set_cached_server[0m:[36m80[0m - [1mTDX server cached: 61.142.4.4:7709[0m
+INFO:     127.0.0.1:61815 - "GET /events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61817 - "GET /events HTTP/1.1" 200 OK
+[32m2026-05-29 16:05:45.545[0m | [31m[1mERROR   [0m | [36mquant_etf.dashboard.app[0m:[36mgeneric_exception_handler[0m:[36m113[0m - [31m[1mUnhandled exception: 'Scheduler' object has no attribute 'get_all_tasks'[0m
+INFO:     127.0.0.1:61821 - "GET /health HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 421, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 56, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\fastapi\applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\fastapi\routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\fastapi\routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\fastapi\routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\mw3\wspy\2025\quant-ETF\.venv\Lib\site-packages\fastapi\routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\mw3\wspy\2025\quant-ETF\src\quant_etf\dashboard\app.py", line 66, in health
+    "scheduler_tasks": len(scheduler.get_all_tasks()),
+                           ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Scheduler' object has no attribute 'get_all_tasks'
+INFO:     127.0.0.1:52779 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55326 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55326 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:65494 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65494 - "GET /favicon.ico HTTP/1.1" 204 No Content
+[32m2026-05-29 16:06:28.189[0m | [1mINFO    [0m | [36mquant_etf.minute_fill[0m:[36mfill_minute_gaps[0m:[36m127[0m - [1mfill complete: 0/68 success, 68 skipped, 0 failed, 0 bars inserted[0m
+[32m2026-05-29 16:06:28.189[0m | [1mINFO    [0m | [36mquant_etf.minute_fill[0m:[36mensure_minute_data_ready[0m:[36m310[0m - [1mensure_minute_data_ready: done - 0/68 success, 0 bars inserted[0m
+[32m2026-05-29 16:06:28.189[0m | [1mINFO    [0m | [36mquant_etf.dashboard.services.minute_collector_service[0m:[36mstart[0m:[36m120[0m - [1mminute_collector_service: starting (IS_PRIMARY=True)[0m
+[32m2026-05-29 16:06:28.189[0m | [1mINFO    [0m | [36mquant_etf.dashboard.services.minute_collector_service[0m:[36mstart[0m:[36m131[0m - [1mminute_collector_service: waiting for next window (¥Œ»’…œŒÁ), wait 62311s[0m
+INFO:     127.0.0.1:61802 - "GET /pages/strategy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61802 - "GET /events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56376 - "GET /auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56376 - "GET /pages/strategy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56376 - "GET /api/strategy/strategies HTTP/1.1" 200 OK
+[32m2026-05-29 16:06:40.426[0m | [34m[1mDEBUG   [0m | [36mquant_etf.dashboard.services.sse_manager[0m:[36msubscribe[0m:[36m32[0m - [34m[1mSSE client disconnected[0m
+INFO:     127.0.0.1:49952 - "GET /auth/logout HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:56144 - "GET /pages/strategy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56144 - "GET /events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59375 - "GET /auth/status HTTP/1.1" 200 OK
+[32m2026-05-29 16:06:53.816[0m | [34m[1mDEBUG   [0m | [36mquant_etf.dashboard.services.sse_manager[0m:[36msubscribe[0m:[36m32[0m - [34m[1mSSE client disconnected[0m
+INFO:     127.0.0.1:59375 - "GET /auth/logout HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:59375 - "GET /auth/login HTTP/1.1" 200 OK
+[32m2026-05-29 16:07:00.269[0m | [1mINFO    [0m | [36mquant_etf.dashboard.routes.auth_routes[0m:[36mlogin_post[0m:[36m120[0m - [1mUser admin logged in via local password[0m
+INFO:     127.0.0.1:59375 - "POST /auth/login HTTP/1.1" 302 Found
+INFO:     127.0.0.1:59375 - "GET /pages/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59375 - "GET /events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53682 - "GET /auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53682 - "GET /pages/strategy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53682 - "GET /api/strategy/strategies HTTP/1.1" 200 OK
+[32m2026-05-29 16:07:15.399[0m | [1mINFO    [0m | [36mquant_etf.dashboard.routes.auth_routes[0m:[36mlogin_post[0m:[36m120[0m - [1mUser admin logged in via local password[0m
+INFO:     127.0.0.1:55443 - "POST /auth/login HTTP/1.1" 302 Found
+INFO:     127.0.0.1:55443 - "POST /pages/overview HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:61803 - "GET /auth/login HTTP/1.1" 200 OK
+[32m2026-05-29 16:07:32.201[0m | [1mINFO    [0m | [36mquant_etf.dashboard.routes.auth_routes[0m:[36mlogin_post[0m:[36m120[0m - [1mUser admin logged in via local password[0m
+INFO:     127.0.0.1:50674 - "POST /auth/login HTTP/1.1" 302 Found
+INFO:     127.0.0.1:50674 - "POST /pages/overview HTTP/1.1" 405 Method Not Allowed
