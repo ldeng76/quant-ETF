@@ -29,10 +29,10 @@
                 {{ s.last_run_at.strftime('%Y-%m-%d %H:%M:%S') if s.last_run_at else '-' }}
             </td>
             <td>
-                <button class="btn btn-sm btn-outline-{{ 'danger' if s.running else 'success' }}"
+                <button class="btn btn-sm btn-outline-{{ 'danger' if s.enabled else 'success' }}"
                         hx-post="/api/market/schedules/{{ s.id }}/toggle"
                         hx-target="#schedule-table">
-                    {{ '停止' if s.running else '启动' }}
+                    {{ '停止' if s.enabled else '启动' }}
                 </button>
                 <button class="btn btn-sm btn-outline-secondary"
                         hx-delete="/api/market/schedules/{{ s.id }}"

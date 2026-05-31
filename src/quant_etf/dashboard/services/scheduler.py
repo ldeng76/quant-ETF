@@ -3,13 +3,26 @@
 使用 asyncio.create_task 实现轻量调度
 """
 import asyncio
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, time
 from loguru import logger
 
 from .strategy_runner import run_strategy, get_task_status
 from .sse_manager import sse_manager
 from ..db import query, execute
+
+
+def is_in_trading_window() -> bool:
+    """
+    判断当前是否在交易时段的前后10分钟窗口内
+    - 09:20-11:30 (上午预热9:20, 上午收盘11:30)
+    - 12:50-15:00 (下午预热12:50, 下午收盘15:00)
+    """
+    now = datetime.now()
+    if now.weekday() >= 5:
+        return False
+    current = now.time()
+    return (time(9, 20) <= current <= time(11, 30) or
+            time(12, 50) <= current <= time(15, 0))
 
 
 class Scheduler:
@@ -21,6 +34,12 @@ class Scheduler:
         logger.info(f"Starting scheduled loop: {strategy} (every {interval}s, interval={bar_interval})")
         while True:
             try:
+                # 检查是否在交易窗口内
+                if not is_in_trading_window():
+                    logger.debug(f"Outside trading window, skipping run: {strategy}")
+                    await asyncio.sleep(interval)
+                    continue
+
                 logger.info(f"Scheduled run: {strategy} (every {interval}s, interval={bar_interval})")
                 run_id = f"sched_{schedule_id}_{datetime.now().timestamp()}"
                 await run_strategy(strategy, run_id, bar_interval=bar_interval)

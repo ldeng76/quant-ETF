@@ -116,10 +116,12 @@ async def toggle_schedule(request: Request, schedule_id: int, user: dict = Depen
     s = query_one("SELECT * FROM schedules WHERE id = %s", [schedule_id])
     if not s:
         raise HTTPException(404, "Schedule not found")
-    if scheduler.is_running(schedule_id):
+    if s["enabled"]:
+        # 已启用 → 停止
         await scheduler.stop(schedule_id)
-        execute("UPDATE schedules SET enabled = 0 WHERE id = %s", [schedule_id])
+        execute("UPDATE schedules SET enabled = FALSE WHERE id = %s", [schedule_id])
     else:
+        # 已停用 → 启动
         execute("UPDATE schedules SET enabled = TRUE WHERE id = %s", [schedule_id])
         bar_interval = s.get("bar_interval", "1d")
         asyncio.create_task(scheduler.start_loop(schedule_id, s["strategy"], s["interval"], bar_interval))
