@@ -26,7 +26,7 @@
                 {% endif %}
             </td>
             <td class="small text-muted">
-                {{ s.last_run_at[:19] if s.last_run_at else '-' }}
+                {{ s.last_run_at.strftime('%Y-%m-%d %H:%M:%S') if s.last_run_at else '-' }}
             </td>
             <td>
                 <button class="btn btn-sm btn-outline-{{ 'danger' if s.running else 'success' }}"
