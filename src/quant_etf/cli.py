@@ -501,7 +501,7 @@ def build_parser():
 
     p = sub.add_parser("check", help="Dashboard 健康检查")
     p.add_argument("--port", type=int, default=8080, help="Dashboard 端口")
-
+    sub.add_parser("scheduler", help="启动多用户策略定时调度服务 (APScheduler)")
     sub.add_parser("backfill-stock-names", help="补齐 stock_code_name.json 中缺失的股票代码名称")
 
     p = sub.add_parser(
@@ -691,7 +691,27 @@ def cmd_minute_audit(args):
     report = audit_minute_gaps(codes=codes, max_days=args.days, fix=args.fix)
     print_audit_report(report)
 
-
+def cmd_scheduler(args):
+    from quant_etf.scheduler import run_scheduler_blocking
+    from quant_etf.scheduler_engine import get_all_codes, get_cache
+    from quant_etf.scheduler_db import get_all_users
+    logger.info("=" * 60)
+    logger.info("Starting multi-user strategy scheduler...")
+    logger.info("=" * 60)
+    # 打印池子配置
+    try:
+        users = get_all_users()
+        codes_1d = get_all_codes("1d")
+        cache = get_cache()
+        logger.info(f"  Users (enabled): {len(users)}")
+        logger.info(f"  1d pool size: {len(codes_1d)} securities")
+        logger.info(f"  Cache: {cache.size} entries")
+    except Exception as e:
+        logger.warning(f"  Could not load initial state: {e}")
+    logger.info("  Intervals: 1d / 60m / 30m / 15m @ 180s")
+    logger.info("  Timeout per job: 150s")
+    logger.info("=" * 60)
+    run_scheduler_blocking()
 COMMANDS = {
     "daily-run": cmd_daily_run,
     "dashboard": cmd_dashboard,
@@ -708,6 +728,7 @@ COMMANDS = {
     "backfill-missing": cmd_backfill_missing,
     "minute-fill": cmd_minute_fill,
     "minute-audit": cmd_minute_audit,
+    "scheduler": cmd_scheduler,
 }
 
 

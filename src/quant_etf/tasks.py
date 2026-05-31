@@ -56,6 +56,9 @@ class BaseTask(ABC):
         self.ds: Optional[ETFDataSource] = None
         self.strategy: Optional[StrategyEngine] = None
         self.risk_manager: Optional[RiskManager] = None
+        # Pool override set by scheduler_engine (per-user merged public+private pools)
+        # Dict mapping pool_type → list of codes, e.g. {"etf": [...], "stock": [...], "mid_term": [...]}
+        self._override_pool: Optional[Dict[str, List[str]]] = None
 
     @property
     def intraday(self) -> bool:
@@ -188,6 +191,9 @@ class BaseTask(ABC):
         self._loaded_data = data
         results = self.run_strategy(data)
 
+        # Store results so scheduler_engine can read them
+        self._results = results
+
         if not results:
             logger.warning("No results from strategy. Exiting.")
             return
@@ -218,6 +224,8 @@ class ETFTask(BaseTask):
     title = "ETF 组合"
 
     def get_pool(self) -> List[str]:
+        if self._override_pool is not None and "etf" in self._override_pool:
+            return self._override_pool["etf"]
         return ETF_POOL
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
@@ -345,6 +353,8 @@ class ShortTermStockTask(BaseTask):
     title = "短线股票"
 
     def get_pool(self) -> List[str]:
+        if self._override_pool is not None and "stock" in self._override_pool:
+            return self._override_pool["stock"]
         return STOCK_POOL
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
@@ -406,6 +416,8 @@ class MidTermReboundTask(BaseTask):
     title = "中期反弹"
 
     def get_pool(self) -> List[str]:
+        if self._override_pool is not None and "mid_term" in self._override_pool:
+            return self._override_pool["mid_term"]
         return MID_TERM_STOCK_POOL
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
