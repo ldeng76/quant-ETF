@@ -1,6 +1,7 @@
 <div class="py-3" x-data="{
     showScheduleModal: false,
-    scheduleForm: { strategy: '', interval: 300 },
+    DEFAULT_BAR_INTERVAL: '1d',
+    scheduleForm: { strategy: '', interval: 300, bar_interval: '1d' },
     strategies: [],
     async initStrategies() {
         try {
@@ -14,7 +15,7 @@
         }
     },
     resetScheduleForm() { 
-        this.scheduleForm = { strategy: this.strategies[0]?.name || '', interval: 300 };
+        this.scheduleForm = { strategy: this.strategies[0]?.name || '', interval: 300, bar_interval: this.DEFAULT_BAR_INTERVAL };
     },
 }" x-init="initStrategies()" x-on:open-schedule-modal.window="showScheduleModal = true; resetScheduleForm()">
     <h4><i class="bi bi-eye"></i> 实时监控</h4>
@@ -84,7 +85,7 @@
                 fetch('/api/market/schedules', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({strategy: scheduleForm.strategy, interval: parseInt(scheduleForm.interval)})
+                    body: JSON.stringify({strategy: scheduleForm.strategy, interval: parseInt(scheduleForm.interval), bar_interval: scheduleForm.bar_interval})
                 }).then(() => {
                     htmx.ajax('GET', '/api/market/schedules', {target: '#schedule-table'});
                     showScheduleModal = false;
@@ -99,10 +100,19 @@
                         </template>
                     </select>
                 </div>
-                <div class="mb-3">
+                <div class="mb-2">
                     <label class="form-label small">执行间隔（秒） *</label>
                     <input type="number" name="interval" class="form-control form-control-sm" x-model="scheduleForm.interval" required min="60">
                     <div class="form-text">最少 60 秒</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">K线周期 *</label>
+                    <select name="bar_interval" class="form-select form-select-sm" x-model="scheduleForm.bar_interval" required>
+                        <option value="1d">日线</option>
+                        <option value="60m">60分钟</option>
+                        <option value="30m">30分钟</option>
+                        <option value="15m">15分钟</option>
+                    </select>
                 </div>
                 <div class="text-end">
                     <button type="button" class="btn btn-sm btn-secondary" x-on:click="showScheduleModal = false">取消</button>
