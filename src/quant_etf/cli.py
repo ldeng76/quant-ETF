@@ -690,28 +690,34 @@ def cmd_minute_audit(args):
 
     report = audit_minute_gaps(codes=codes, max_days=args.days, fix=args.fix)
     print_audit_report(report)
-
 def cmd_scheduler(args):
+    from loguru import logger
     from quant_etf.scheduler import run_scheduler_blocking
     from quant_etf.scheduler_engine import get_all_codes, get_cache
     from quant_etf.scheduler_db import get_all_users
-    logger.info("=" * 60)
-    logger.info("Starting multi-user strategy scheduler...")
-    logger.info("=" * 60)
-    # 打印池子配置
+
+    logger.info('=' * 60)
+    logger.info('Starting multi-user strategy scheduler...')
+    logger.info('=' * 60)
+
     try:
         users = get_all_users()
-        codes_1d = get_all_codes("1d")
+        codes_1d = get_all_codes('1d')
         cache = get_cache()
-        logger.info(f"  Users (enabled): {len(users)}")
-        logger.info(f"  1d pool size: {len(codes_1d)} securities")
-        logger.info(f"  Cache: {cache.size} entries")
+        logger.info(f'  Users (enabled): {len(users)}')
+        logger.info(f'  1d pool size: {len(codes_1d)} securities')
+        logger.info(f'  Cache: {cache.size} entries')
     except Exception as e:
-        logger.warning(f"  Could not load initial state: {e}")
-    logger.info("  Intervals: 1d / 60m / 30m / 15m @ 180s")
-    logger.info("  Timeout per job: 150s")
-    logger.info("=" * 60)
+        logger.warning(f'  Could not load initial state: {e}')
+
+    logger.info('  Intervals: 1d / 60m / 30m / 15m @ 180s')
+    logger.info('  Timeout per job: 150s')
+    logger.info('=' * 60)
+
     run_scheduler_blocking()
+
+
+
 COMMANDS = {
     "daily-run": cmd_daily_run,
     "dashboard": cmd_dashboard,
