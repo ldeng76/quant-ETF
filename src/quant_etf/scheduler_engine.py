@@ -172,7 +172,6 @@ def run_single_user_strategy(user: dict, interval: str) -> List[dict]:
                     "code": result.code,
                     "score": result.score,
                     "rank_pos": rank_pos_1based,
-                    "p60": result.p60,
                     "p20": result.p20,
                     "p10": result.p10,
                     "p5": result.p5,
