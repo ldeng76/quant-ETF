@@ -21,9 +21,8 @@ from .sse_manager import sse_manager
 from .alert_engine import alert_engine
 from ..db import query, execute, execute_many
 
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=6)
 _running_tasks: dict[str, dict] = {}
-
 # 名称映射缓存（从 stock_code_name.json 加载）
 _name_map_cache: dict[str, str] | None = None
 
