@@ -578,10 +578,17 @@ def _persist_run_results(run_id: str, strategy: str, bar_interval: str,
           error_msg, run_id])
     # 批量写入结果明细
     if result and status == "complete":
+        def _to_float(val) -> float | None:
+            """将 '5.90%' 或 '5.90' 转换为 float"""
+            if val is None:
+                return None
+            s = str(val).strip().rstrip("%")
+            return float(s) if s else None
         params = [
             [run_id, r.get("code", ""), r.get("name", ""),
-             r.get("p60", ""), r.get("p20", ""), r.get("p10", ""), r.get("p5", ""),
-             r.get("target_weight"), r.get("interval", ""), r.get("date", "")]
+             _to_float(r.get("p60")), _to_float(r.get("p20")),
+             _to_float(r.get("p10")), _to_float(r.get("p5")),
+             _to_float(r.get("target_weight")), r.get("interval", ""), r.get("date", "")]
             for r in result
         ]
         execute_many("""
