@@ -7,6 +7,8 @@
 import asyncio
 import threading
 from loguru import logger
+from .scheduler import scheduler
+from ..config import IS_PRIMARY
 
 # 预加载状态
 _preload_completed = False
@@ -44,8 +46,9 @@ def start_background_preload():
         try:
             preload_market_state()
             from quant_etf.minute_fill import ensure_minute_data_ready
-            ensure_minute_data_ready()
-            from quant_etf.dashboard.services.minute_collector_service import start_minute_collector_service
+            if IS_PRIMARY:
+                import asyncio
+                asyncio.get_event_loop().run_until_complete(scheduler.start_all())
             start_minute_collector_service()
             _preload_completed = True
         except Exception as e:
