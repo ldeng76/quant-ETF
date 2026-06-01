@@ -99,6 +99,8 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
         INSERT INTO strategy_runs (run_id, strategy, bar_interval, status, started_at, created_by)
         VALUES (%s, %s, %s, 'running', %s, 'scheduler')
     """, [run_id, strategy_name, bar_interval, datetime.now().isoformat()])
+    # 在进入线程前捕获主事件循环，供 SSE 广播使用
+    main_loop = asyncio.get_event_loop()
     def _execute():
         try:
             intraday = is_intraday()
@@ -170,8 +172,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                         # SSE 广播告警事件
                         for a in triggered:
                             try:
-                                loop = asyncio.get_event_loop()
-                                if loop.is_running():
+                                if main_loop.is_running():
                                     asyncio.run_coroutine_threadsafe(
                                         sse_manager.broadcast({
                                             "type": "alert",
@@ -184,7 +185,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                                             "run_id": run_id,
                                             "timestamp": datetime.now().isoformat(),
                                         }),
-                                        loop
+                                        main_loop
                                     )
                             except Exception as sse_err:
                                 logger.warning(f"Failed to broadcast alert SSE: {sse_err}")
@@ -209,8 +210,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                                  None, None, error_msg)
             # 通过 SSE 广播错误事件（与 scheduler.py 一致）
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                if main_loop.is_running():
                     asyncio.run_coroutine_threadsafe(
                         sse_manager.broadcast({
                             "type": "strategy_error",
@@ -220,7 +220,7 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                             "error": str(e),
                             "timestamp": datetime.now().isoformat(),
                         }),
-                        loop
+                        main_loop
                     )
                 else:
                     # 事件循环未运行（已关闭），跳过 SSE 广播
