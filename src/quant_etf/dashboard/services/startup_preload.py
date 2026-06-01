@@ -45,10 +45,8 @@ def start_background_preload():
         global _preload_completed, _preload_error
         try:
             preload_market_state()
-            from quant_etf.minute_fill import ensure_minute_data_ready
             if IS_PRIMARY:
-                import asyncio
-                asyncio.get_event_loop().run_until_complete(scheduler.start_all())
+                asyncio.run(scheduler.start_all())
             start_minute_collector_service()
             _preload_completed = True
         except Exception as e:
