@@ -22,39 +22,10 @@
                 </span>
             </div>
 
-            <div id="strategy-list">
-                <div class="spinner-border spinner-border-sm"></div> 加载策略列表...
-            </div>
-            <button class="btn btn-primary mt-2"
-                    x-on:click="
-                        const checked = document.querySelectorAll('input[name=strategies]:checked');
-                        const strategies = Array.from(checked).map(c => c.value);
-                        if (strategies.length === 0) return;
-                        document.getElementById('run-spinner').style.opacity = '1';
-                        document.getElementById('strategy-result').innerHTML = '<div class=\'text-center py-3\'><div class=\'spinner-border spinner-border-sm\'></div> 提交中...</div>';
-                        fetch('/api/strategy/run', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({strategies: strategies, bar_interval: barInterval})
-                        })
-                        .then(r => r.json())
-                        .then(data => {
-                            document.getElementById('run-spinner').style.opacity = '0';
-                            if (data.run_ids && data.run_ids.length > 0) {
-                                // 加载第一个 run_id 的结果（含轮询）
-                                htmx.ajax('GET', '/api/strategy/results/' + data.run_ids[0], {target: '#strategy-result'});
-                            }
-                        })
-                        .catch(() => {
-                            document.getElementById('run-spinner').style.opacity = '0';
-                            document.getElementById('strategy-result').innerHTML = '<div class=\'alert alert-danger\'>执行请求失败</div>';
-                        });
-                    ">
-                <i class="bi bi-play-fill"></i> 执行选中策略
-            </button>
-            <span id="run-spinner" class="htmx-indicator">
-                <span class="spinner-border spinner-border-sm"></span> 执行中...
-            </span>
+    </div>
+    <div id="strategy-result">
+        <div class="text-muted small">选择策略后执行查看结果</div>
+    </div>
         </div>
     </div>
 
