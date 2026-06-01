@@ -2,6 +2,7 @@
 FastAPI应用入口
 """
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse, Response
@@ -18,22 +19,11 @@ from .services.scheduler import scheduler
 from .services.startup_preload import start_background_preload
 from .auth import is_auth_enabled
 
-app = FastAPI(title="quant-ETF Dashboard", version="2.0.0")
 
-# 挂载路由
-app.include_router(auth_router)          # /auth/*
-app.include_router(wechat_api_router)    # /api/* (微信小程序)
-app.include_router(pages.router)         # /pages/*
-app.include_router(portfolio.router, prefix="/api/portfolio")
-app.include_router(strategy.router, prefix="/api/strategy")
-app.include_router(alerts.router, prefix="/api/alerts")
-app.include_router(market.router, prefix="/api/market")
-app.include_router(watchlist.router, prefix="/api/watchlist")
-
-
-@app.on_event("startup")
-async def startup():
-    """应用启动时初始化"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager（替换 @app.on_event）"""
+    # Startup
     logger.info("Dashboard starting...")
     if is_auth_enabled():
         logger.info("Authentication: enabled (JWT)")
@@ -52,22 +42,29 @@ async def startup():
 
     logger.info(f"Dashboard ready on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
 
+    yield  # 应用运行在这里
 
-@app.on_event("shutdown")
-async def shutdown():
-    """应用关闭时清理"""
-    print("[DEBUG] shutdown handler called")
+    # Shutdown
     logger.info("Dashboard shutting down...")
     scheduler.stop_all()
-    print("[DEBUG] scheduler.stop_all() done")
     from .services.minute_collector_service import stop_minute_collector_service
-    print("[DEBUG] calling stop_minute_collector_service()")
     stop_minute_collector_service()
-    print("[DEBUG] stop_minute_collector_service() done")
     await sse_manager.close()
     await close_pool()
     logger.info("Dashboard shutdown complete")
-    print("[DEBUG] shutdown handler complete")
+
+
+app = FastAPI(title="quant-ETF Dashboard", version="2.0.0", lifespan=lifespan)
+
+# 挂载路由
+app.include_router(auth_router)          # /auth/*
+app.include_router(wechat_api_router)    # /api/* (微信小程序)
+app.include_router(pages.router)         # /pages/*
+app.include_router(portfolio.router, prefix="/api/portfolio")
+app.include_router(strategy.router, prefix="/api/strategy")
+app.include_router(alerts.router, prefix="/api/alerts")
+app.include_router(market.router, prefix="/api/market")
+app.include_router(watchlist.router, prefix="/api/watchlist")
 
 
 @app.exception_handler(Exception)
