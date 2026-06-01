@@ -56,13 +56,18 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """应用关闭时清理"""
+    print("[DEBUG] shutdown handler called")
     logger.info("Dashboard shutting down...")
     scheduler.stop_all()
+    print("[DEBUG] scheduler.stop_all() done")
     from .services.minute_collector_service import stop_minute_collector_service
+    print("[DEBUG] calling stop_minute_collector_service()")
     stop_minute_collector_service()
+    print("[DEBUG] stop_minute_collector_service() done")
     await sse_manager.close()
     await close_pool()
     logger.info("Dashboard shutdown complete")
+    print("[DEBUG] shutdown handler complete")
 
 
 @app.exception_handler(Exception)

@@ -269,8 +269,10 @@ class MinuteCollectorService:
 
     def stop(self) -> None:
         """停止服务（用于测试）"""
+        logger.info(f"minute_collector_service stop: stop_event already_set={self._stop_event.is_set()}")
         self._stop_event.set()
         if self._timer:
+            logger.info("minute_collector_service stop: cancelling timer")
             self._timer.cancel()
             self._timer = None
         logger.info("minute_collector_service: stopped")
