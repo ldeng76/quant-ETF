@@ -22,6 +22,35 @@
             <div id="strategy-list">
                 <div class="spinner-border spinner-border-sm"></div> 加载策略列表...
             </div>
+            <button class="btn btn-primary mt-2" id="run-strategy-btn"
+                    x-on:click="
+                        const checked = document.querySelectorAll('input[name=strategies]:checked');
+                        const strategies = Array.from(checked).map(c => c.value);
+                        if (strategies.length === 0) { alert('请至少选择一个策略'); return; }
+                        $el.disabled = true;
+                        $el.innerHTML = '<span class=&quot;spinner-border spinner-border-sm&quot;></span> 执行中...';
+                        fetch('/api/strategy/run', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({strategies: strategies, bar_interval: barInterval})
+                        })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.run_ids && data.run_ids.length > 0) {
+                                htmx.ajax('GET', '/api/strategy/results/' + data.run_ids[0], {target: '#strategy-result'});
+                            }
+                        })
+                        .catch(err => {
+                            document.getElementById('strategy-result').innerHTML = '<div class=&quot;alert alert-danger&quot;>执行失败: ' + err + '</div>';
+                        })
+                        .finally(() => {
+                            $el.disabled = false;
+                            $el.innerHTML = '<i class=&quot;bi bi-play-fill&quot;></i> 执行选中策略';
+                        });
+                    ">
+                <i class="bi bi-play-fill"></i> 执行选中策略
+            </button>
+        </div>
     </div>
     <div id="strategy-result">
         <div class="text-muted small">选择策略后执行查看结果</div>

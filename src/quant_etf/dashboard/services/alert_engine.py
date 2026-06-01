@@ -24,6 +24,7 @@ class AlertEngine:
         self.rules: list[AlertRule] = [
             AlertRule("评分进入前三", self._check_top3_entry, "warning"),
             AlertRule("动量得分突变", self._check_momentum_shock, "danger"),
+            AlertRule("下榜卖出信号", self._check_delist, "warning"),
             AlertRule("持仓偏离目标", self._check_position_deviation, "info"),
         ]
 
@@ -85,6 +86,27 @@ class AlertEngine:
             return float(s) / 100 if "%" in str(value) else float(s)
         except (ValueError, TypeError):
             return None
+
+    def _check_delist(self, latest_result, prev_result) -> Optional[dict]:
+        """检查是否有标的下榜（昨日在榜、今日不在）"""
+        if not latest_result or not prev_result:
+            return None
+        try:
+            curr_codes = set(item["code"] for item in latest_result if item.get("code"))
+            prev_codes = set(item["code"] for item in prev_result if item.get("code"))
+            delisted = prev_codes - curr_codes
+            if delisted:
+                # 获取下榜标的的名称
+                name_map = {item["code"]: item.get("name", "") for item in prev_result}
+                details = [f"{c}({name_map.get(c, '')})" for c in sorted(delisted)]
+                return {
+                    "title": f"{len(delisted)}个标的下榜",
+                    "message": ", ".join(details),
+                    "data": {"delisted": list(delisted)},
+                }
+        except Exception as e:
+            logger.warning(f"Alert check delist failed: {e}")
+        return None
 
     def _check_position_deviation(self, latest_result, prev_result) -> Optional[dict]:
         """检查持仓偏离目标（预留）"""

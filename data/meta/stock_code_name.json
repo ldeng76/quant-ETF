@@ -350,6 +350,11 @@
     "market": "sz"
   },
   {
+    "code": "159687",
+    "name": "亚太精选ETF南方",
+    "market": "sz"
+  },
+  {
     "code": "159697",
     "name": "石油ETF鹏华",
     "market": "sz"
@@ -412,6 +417,11 @@
   {
     "code": "159886",
     "name": "机械ETF富国",
+    "market": "sz"
+  },
+  {
+    "code": "159919",
+    "name": "深证300ETF嘉实",
     "market": "sz"
   },
   {
@@ -735,6 +745,11 @@
     "market": "sh"
   },
   {
+    "code": "513300",
+    "name": "纳斯达克ETF华夏",
+    "market": "sh"
+  },
+  {
     "code": "513330",
     "name": "恒生互联网ETF华夏",
     "market": "sh"
@@ -780,6 +795,11 @@
     "market": "sh"
   },
   {
+    "code": "530880",
+    "name": "红利国企ETF银河",
+    "market": "sh"
+  },
+  {
     "code": "560080",
     "name": "中药ETF汇添富",
     "market": "sh"
@@ -817,6 +837,11 @@
   {
     "code": "562920",
     "name": "信息安全ETF易方达",
+    "market": "sh"
+  },
+  {
+    "code": "588000",
+    "name": "科创50ETF华夏",
     "market": "sh"
   },
   {
@@ -1207,16 +1232,6 @@
   {
     "code": "688981",
     "name": "中芯国际",
-    "market": "sh"
-  },
-  {
-    "code": "159919",
-    "name": "深证300ETF嘉实",
-    "market": "sz"
-  },
-  {
-    "code": "588000",
-    "name": "科创50ETF华夏",
     "market": "sh"
   }
 ]

@@ -134,6 +134,15 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                     },
                 }
 
+            # 存储下榜列表（实时计算）
+            delisted = getattr(task, "_delisted_codes", None)
+            if delisted:
+                _running_tasks[run_id]["delisted_codes"] = list(delisted)
+            # 存储当前池子代码（供告警引擎排除主动删除的标的）
+            pool_codes = getattr(task, "_pool_codes", None)
+            if pool_codes:
+                _running_tasks[run_id]["pool_codes"] = pool_codes
+
             _running_tasks[run_id]["progress"] = 80
 
             # 读取结果
@@ -163,6 +172,10 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
             try:
                 records_for_alert = _running_tasks[run_id].get("result", [])
                 prev_records = _load_prev_strategy_result(strategy_name, bar_interval)
+                # 排除主动从池子中删除的标的，避免误判为下榜
+                pool_codes = _running_tasks[run_id].get("pool_codes")
+                if pool_codes and prev_records:
+                    prev_records = [r for r in prev_records if r.get("code") in pool_codes]
                 if records_for_alert and prev_records:
                     triggered = alert_engine.check(records_for_alert, prev_records)
                     if triggered:
@@ -345,22 +358,53 @@ def get_today_results(strategy_name: str, bar_interval: str = "1d") -> dict:
 
 
 def get_sell_signals(strategy_name: str = "etf", bar_interval: str = "1d") -> list[dict]:
-    """检测今日掉榜的标的，返回卖出信号列表。
+    """检测掉榜标的，返回卖出信号列表。
 
-    严格模式：只在最新结果日掉榜的标的才触发卖出信号。
+    优先使用实时下榜数据（最近一次执行计算），否则回退到 CSV 历史对比。
     """
+    # 1. 优先：从最近一次执行结果中读取实时下榜列表
+    for run_id in sorted(_running_tasks.keys(), reverse=True):
+        info = _running_tasks[run_id]
+        if (info.get("status") == "complete"
+                and info.get("strategy") == strategy_name
+                and info.get("bar_interval") == bar_interval
+                and "delisted_codes" in info):
+            delisted_codes = set(info["delisted_codes"])
+            if not delisted_codes:
+                return []
+            # 从今日 CSV 获取名称映射
+            today = datetime.now().strftime("%Y-%m-%d")
+            csv_path = _get_csv_path(strategy_name, bar_interval, today)
+            name_map = {}
+            if csv_path.exists():
+                try:
+                    df = pd.read_csv(csv_path, dtype={"code": str})
+                    name_map = dict(zip(df["code"], df.get("name", [""] * len(df))))
+                except Exception:
+                    pass
+            # 补充 meta 名称
+            meta_map = _load_name_map()
+            signals = []
+            for code in delisted_codes:
+                name = name_map.get(code) or meta_map.get(code, "")
+                signals.append({
+                    "code": code,
+                    "name": name,
+                    "source": "realtime",
+                })
+            return signals
+
+    # 2. 回退：CSV 历史对比（严格模式）
     summary = get_history_summary(
         strategy_name=strategy_name, days=30, auto_backfill=False, bar_interval=bar_interval
     )
     if not summary:
         return []
 
-    # 找到最新结果日期（当前仍在榜的标的的 last_on_date 最大值）
     latest_date = max((d["last_on_date"] for d in summary if d["is_active"]), default=None)
     if not latest_date:
         return []
 
-    # 严格模式：off_date == latest_date 表示今天刚掉榜
     signals = []
     for item in summary:
         if not item["is_active"] and item["off_date"] == latest_date:
@@ -369,6 +413,7 @@ def get_sell_signals(strategy_name: str = "etf", bar_interval: str = "1d") -> li
                 "name": item["name"],
                 "last_on_date": item["last_on_date"],
                 "on_days": item["on_days"],
+                "source": "csv_history",
             })
     return signals
 

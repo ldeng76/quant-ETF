@@ -129,11 +129,29 @@ async def favicon():
 
 
 def main():
+    import signal
     import uvicorn
     import os
 
     host = os.environ.get("DASHBOARD_HOST", DASHBOARD_HOST)
     port = int(os.environ.get("DASHBOARD_PORT", DASHBOARD_PORT))
+
+    # Windows + uvicorn: Ctrl+C 无法可靠停止服务器
+    # 原因：SSE 长连接导致优雅关闭阶段卡住，第二次 Ctrl+C 的 SystemExit 被 uvicorn 吞掉
+    # 解决：注册 SIGINT handler，第一次 raise SystemExit，第二次 os._exit(0) 强杀
+    _sigint_count = 0
+
+    def _sigint_handler(signum, frame):
+        nonlocal _sigint_count
+        _sigint_count += 1
+        if _sigint_count == 1:
+            print("\n>>> Ctrl+C received, shutting down... (press Ctrl+C again to force quit)", flush=True)
+            raise SystemExit(0)
+        else:
+            print("\n>>> Force quitting...", flush=True)
+            os._exit(0)
+
+    signal.signal(signal.SIGINT, _sigint_handler)
 
     uvicorn.run(
         "quant_etf.dashboard.app:app",
@@ -142,6 +160,7 @@ def main():
         reload=False,
         factory=False,
         log_level="info",
+        timeout_graceful_shutdown=3,  # 3秒后强制关闭所有连接
     )
 
 

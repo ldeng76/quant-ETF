@@ -233,6 +233,50 @@ class ETFTask(BaseTask):
         """
         return self.ds.load_data_batch(pool, intraday=self.intraday, interval=self._bar_interval)
 
+    def _load_previous_etf_codes(self) -> set:
+        """从最近一次 CSV 结果加载昨日在榜 ETF 代码集合"""
+        results_dir = PROJECT_ROOT / "data" / "results"
+        if not results_dir.exists():
+            return set()
+
+        target_dt = None
+        if self.target_date:
+            target_dt = datetime.strptime(self.target_date, "%Y-%m-%d")
+
+        latest_dir = None
+        for d in sorted(results_dir.iterdir(), reverse=True):
+            if not d.is_dir():
+                continue
+            try:
+                dir_date = datetime.strptime(d.name, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if target_dt and dir_date >= target_dt:
+                continue
+            if self._bar_interval == "1d":
+                csv_path = d / "etf.csv"
+            else:
+                csv_path = d / f"etf_{self._bar_interval}.csv"
+            if csv_path.exists():
+                latest_dir = d
+                break
+
+        if not latest_dir:
+            return set()
+
+        if self._bar_interval == "1d":
+            csv_path = latest_dir / "etf.csv"
+        else:
+            csv_path = latest_dir / f"etf_{self._bar_interval}.csv"
+        try:
+            df = pd.read_csv(csv_path, dtype={"code": str})
+            codes = set(df["code"].dropna().str.strip().tolist())
+            logger.info(f"Loaded {len(codes)} previous ETF codes from {latest_dir.name}")
+            return codes
+        except Exception as e:
+            logger.warning(f"Failed to load previous ETF results: {e}")
+            return set()
+
     def run_strategy(self, data: Dict[str, pd.DataFrame]) -> List[ETFScore]:
         from quant_etf.market_regime import assess_market
         from quant_etf.conf import INDEX_WEIGHTS, MARKET_REGIME_CONFIG
@@ -248,15 +292,32 @@ class ETFTask(BaseTask):
 
         # 3. 取 top_n（根据大盘状态）
         top_n = regime.top_n
+
+        # 4. 加载昨日持仓，检测下榜（排除主动从池子中删除的标的）
+        prev_codes = self._load_previous_etf_codes()
+        pool_codes = set(data.keys())  # 当前池中所有标的
+        self._pool_codes = pool_codes  # 供 runner 读取
+        prev_in_pool = prev_codes & pool_codes  # 只考虑仍在池中的昨日持仓
+        current_codes = {item.code for item in ranked[:top_n]}
+        self._delisted_codes = prev_in_pool - current_codes  # 在池中但跌出 top_n → 下榜
+        removed_from_pool = prev_codes - pool_codes
+        if removed_from_pool:
+            logger.info(f"REMOVED FROM POOL (not delist): {removed_from_pool}")
+        for code in self._delisted_codes:
+            logger.info(f"DELISTED: {code} rank>{top_n}, removed from portfolio")
+
+        # 5. 构建组合：top_n 内正常入选
         portfolio = self.strategy.get_target_portfolio(ranked, top_n=top_n)
 
-        # 4. 风控调整（defensive 时折扣更大）
+        # 6. 风控调整（defensive 时折扣更大）
         etf_name_map = self.ds.get_etf_name_map()
         final_portfolio = {}
         warning_factor = 0.5 * regime.risk_discount
 
         for code, weight in portfolio.items():
-            df = data[code]
+            df = data.get(code)
+            if df is None:
+                continue
             risk_status = self.risk_manager.check_risk(df)
             etf_name = etf_name_map.get(code, "Unknown")
 
@@ -276,7 +337,7 @@ class ETFTask(BaseTask):
                 logger.info(f"Risk Check {code} ({etf_name}): PASSED")
                 final_portfolio[code] = weight
 
-        # 5. 输出：保持动量 score 降序
+        # 7. 输出：保持动量 score 降序
         output_results = []
         for code, adj_weight in final_portfolio.items():
             if adj_weight > 0:
