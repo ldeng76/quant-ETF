@@ -1,3 +1,4 @@
+from .minute_collector_service import start_minute_collector_service
 """
 启动时后台预加载核心数据
 
@@ -33,9 +34,9 @@ def preload_market_state():
         logger.warning(f"Market state preload failed: {e}")
 
 
-def start_background_preload():
+async def start_background_preload():
     """
-    启动后台预加载线程（不阻塞主线程）
+    启动后台预加载任务（不阻塞主线程）
 
     在 Dashboard 启动后立即调用，不影响启动速度
     """
