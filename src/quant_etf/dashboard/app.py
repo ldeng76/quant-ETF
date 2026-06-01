@@ -58,6 +58,8 @@ async def shutdown():
     """应用关闭时清理"""
     logger.info("Dashboard shutting down...")
     scheduler.stop_all()
+    from .services.minute_collector_service import stop_minute_collector_service
+    stop_minute_collector_service()
     await sse_manager.close()
     await close_pool()
     logger.info("Dashboard shutdown complete")
