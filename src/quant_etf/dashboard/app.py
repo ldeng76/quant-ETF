@@ -109,7 +109,7 @@ async def health():
 @app.get("/")
 async def root():
     """根路径 -> 重定向到看板"""
-    return RedirectResponse(url="/pages/dashboard")
+    return RedirectResponse(url="/pages/overview")
 
 
 @app.get("/favicon.ico")

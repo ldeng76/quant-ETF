@@ -87,18 +87,21 @@ async def require_admin_async(request: Request) -> dict:
 
 def _unauthenticated(request: Request, reason: str):
     """
-    未认证时抛出异常：
-    - 浏览器直接访问页面 → 302 重定向到登录页
-    - API / HTMX 请求 → 401 JSON
+    未认证响应：认证禁用时返回 mock 用户，否则重定向到登录页
     """
-    is_htmx = request.headers.get("hx-request", "").lower() == "true"
-    is_api = request.url.path.startswith("/api/")
-
-    if is_htmx or is_api:
-        raise HTTPException(status_code=401, detail=f"Unauthorized: {reason}")
-    else:
-        # 浏览器直接访问：302 重定向到登录页
-        raise HTTPException(status_code=302, detail="/auth/login")
+    if not is_auth_enabled():
+        # 认证禁用时，返回一个模拟的 admin 用户（兼容开发模式）
+        return {
+            "id": 1,
+            "username": "admin",
+            "role": "admin",
+            "provider": "mock",
+            "display_name": "Admin (dev mode)",
+        }
+    if request.headers.get("HX-Request"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    # 使用绝对路径，避免在子路径下变成 //auth/login
+    raise HTTPException(status_code=302, detail="/auth/login")
 
 
 def clear_user_cache(request: Request) -> None:
