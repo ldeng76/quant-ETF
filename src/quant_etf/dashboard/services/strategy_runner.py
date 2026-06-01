@@ -202,22 +202,26 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
             _running_tasks[run_id]["status"] = "error"
             _running_tasks[run_id]["error"] = error_msg
             _running_tasks[run_id]["progress"] = -1
-
             # 通过 SSE 广播错误事件（与 scheduler.py 一致）
             try:
-                asyncio.run_coroutine_threadsafe(
-                    sse_manager.broadcast({
-                        "type": "strategy_error",
-                        "run_id": run_id,
-                        "strategy": strategy_name,
-                        "strategy_title": _running_tasks[run_id].get("title", strategy_name),
-                        "error": str(e),
-                        "timestamp": datetime.now().isoformat(),
-                    }),
-                    main_loop
-                )
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        sse_manager.broadcast({
+                            "type": "strategy_error",
+                            "run_id": run_id,
+                            "strategy": strategy_name,
+                            "strategy_title": _running_tasks[run_id].get("title", strategy_name),
+                            "error": str(e),
+                            "timestamp": datetime.now().isoformat(),
+                        }),
+                        loop
+                    )
+                else:
+                    # 事件循环未运行（已关闭），跳过 SSE 广播
+                    pass
             except Exception as sse_err:
-                logger.error(f"Failed to broadcast SSE error: {sse_err}")
+                logger.warning(f"Failed to broadcast SSE error: {sse_err}")
 
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_executor, _execute)
