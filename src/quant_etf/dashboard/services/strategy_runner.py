@@ -19,7 +19,7 @@ from quant_etf.conf import PROJECT_ROOT
 from quant_etf.trading_day import is_intraday
 from .sse_manager import sse_manager
 from .alert_engine import alert_engine
-from ..db import query
+from ..db import query, execute, execute_many
 
 _executor = ThreadPoolExecutor(max_workers=2)
 _running_tasks: dict[str, dict] = {}
@@ -94,7 +94,11 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
         "progress": 0,
         "column_labels": _build_column_labels(bar_interval),
     }
-
+    # 持久化：插入执行记录
+    execute("""
+        INSERT INTO strategy_runs (run_id, strategy, bar_interval, status, started_at, created_by)
+        VALUES (%s, %s, %s, 'running', %s, 'scheduler')
+    """, [run_id, strategy_name, bar_interval, datetime.now().isoformat()])
     # 在进入线程前捕获主事件循环，供 SSE 广播使用
     main_loop = asyncio.get_event_loop()
 
@@ -151,13 +155,13 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                 _running_tasks[run_id]["count"] = 0
 
             _running_tasks[run_id]["status"] = "complete"
-
             # column_labels already set at task init
             _running_tasks[run_id]["progress"] = 100
             _running_tasks[run_id]["finished_at"] = datetime.now().isoformat()
-
+            # 持久化：更新执行记录 + 写入结果明细
+            _persist_run_results(run_id, strategy_name, bar_interval, "complete",
+                                 records, _running_tasks[run_id].get("market_regime"))
             # 清除历史汇总缓存，确保新结果立即可见
-            clear_history_summary_cache(strategy_name, bar_interval)
 
             # --- 告警引擎集成：对比上次结果，触发告警 ---
             try:
@@ -202,6 +206,9 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
             _running_tasks[run_id]["status"] = "error"
             _running_tasks[run_id]["error"] = error_msg
             _running_tasks[run_id]["progress"] = -1
+            # 持久化：更新执行记录为失败状态
+            _persist_run_results(run_id, strategy_name, bar_interval, "error",
+                                 None, None, error_msg)
             # 通过 SSE 广播错误事件（与 scheduler.py 一致）
             try:
                 loop = asyncio.get_event_loop()
@@ -550,5 +557,35 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
         "label": label,
         "dates": dates,
         "values": cum_ret,
-        "prices": prices,
     }
+def _persist_run_results(run_id: str, strategy: str, bar_interval: str,
+                        status: str, result: list[dict] | None = None,
+                        market_regime: dict | None = None, error_msg: str | None = None):
+    """持久化执行记录和结果到数据库"""
+    # UPDATE 执行记录
+    finished_at = datetime.now().isoformat()
+    execute("""
+        UPDATE strategy_runs
+        SET status = %s,
+            finished_at = %s,
+            result_count = %s,
+            market_regime = %s,
+            error_msg = %s
+        WHERE run_id = %s
+    """, [status, finished_at,
+          len(result) if result else 0,
+          json.dumps(market_regime) if market_regime else None,
+          error_msg, run_id])
+    # 批量写入结果明细
+    if result and status == "complete":
+        params = [
+            [run_id, r.get("code", ""), r.get("name", ""),
+             r.get("p60", ""), r.get("p20", ""), r.get("p10", ""), r.get("p5", ""),
+             r.get("target_weight"), r.get("interval", ""), r.get("date", "")]
+            for r in result
+        ]
+        execute_many("""
+            INSERT INTO strategy_run_results
+                (run_id, code, name, p60, p20, p10, p5, target_weight, interval_, date_)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, params)
