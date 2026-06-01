@@ -99,9 +99,6 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
         INSERT INTO strategy_runs (run_id, strategy, bar_interval, status, started_at, created_by)
         VALUES (%s, %s, %s, 'running', %s, 'scheduler')
     """, [run_id, strategy_name, bar_interval, datetime.now().isoformat()])
-    # 在进入线程前捕获主事件循环，供 SSE 广播使用
-    main_loop = asyncio.get_event_loop()
-
     def _execute():
         try:
             intraday = is_intraday()
@@ -110,14 +107,13 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
             task = TaskRegistry.get_task(strategy_name, intraday=intraday, bar_interval=bar_interval)
             if not task:
                 raise ValueError(f"Unknown strategy: {strategy_name}")
-
             _running_tasks[run_id]["title"] = getattr(task, "title", strategy_name)
-
             _running_tasks[run_id]["progress"] = 30
             task.initialize()
-
             _running_tasks[run_id]["progress"] = 50
             task.run()
+            _running_tasks[run_id]["task_ref"] = task
+            # 存储大盘评估结果
             _running_tasks[run_id]["task_ref"] = task
 
             # 存储大盘评估结果
@@ -174,22 +170,24 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                         # SSE 广播告警事件
                         for a in triggered:
                             try:
-                                asyncio.run_coroutine_threadsafe(
-                                    sse_manager.broadcast({
-                                        "type": "alert",
-                                        "alert_type": a.get("alert_type", ""),
-                                        "severity": a.get("severity", "info"),
-                                        "title": a.get("title", ""),
-                                        "message": a.get("message", ""),
-                                        "strategy": strategy_name,
-                                        "strategy_title": _running_tasks[run_id].get("title", strategy_name),
-                                        "run_id": run_id,
-                                        "timestamp": datetime.now().isoformat(),
-                                    }),
-                                    main_loop
-                                )
+                                loop = asyncio.get_event_loop()
+                                if loop.is_running():
+                                    asyncio.run_coroutine_threadsafe(
+                                        sse_manager.broadcast({
+                                            "type": "alert",
+                                            "alert_type": a.get("alert_type", ""),
+                                            "severity": a.get("severity", "info"),
+                                            "title": a.get("title", ""),
+                                            "message": a.get("message", ""),
+                                            "strategy": strategy_name,
+                                            "strategy_title": _running_tasks[run_id].get("title", strategy_name),
+                                            "run_id": run_id,
+                                            "timestamp": datetime.now().isoformat(),
+                                        }),
+                                        loop
+                                    )
                             except Exception as sse_err:
-                                logger.error(f"Failed to broadcast alert SSE: {sse_err}")
+                                logger.warning(f"Failed to broadcast alert SSE: {sse_err}")
                         logger.info(f"Alert engine triggered {len(triggered)} alerts for {strategy_name}")
             except Exception as alert_err:
                 logger.warning(f"Alert engine check failed for {strategy_name}: {alert_err}")
