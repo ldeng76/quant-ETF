@@ -145,11 +145,10 @@ async def run_strategy(strategy_name: str, run_id: Optional[str] = None, bar_int
                 # 过滤无效行
                 records = [r for r in records if r.get("code")]
                 _fix_names(records)
-                _running_tasks[run_id]["result"] = records
-                _running_tasks[run_id]["count"] = len(records)
             else:
-                _running_tasks[run_id]["result"] = []
-                _running_tasks[run_id]["count"] = 0
+                records = []
+            _running_tasks[run_id]["result"] = records
+            _running_tasks[run_id]["count"] = len(records)
 
             _running_tasks[run_id]["status"] = "complete"
             # column_labels already set at task init

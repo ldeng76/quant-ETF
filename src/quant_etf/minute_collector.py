@@ -16,7 +16,7 @@ from pytdx.params import TDXParams
 from pytdx.config.hosts import hq_hosts
 
 from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server
-from quant_etf.conf import DATA_DIR, ALL_POOL
+from quant_etf.conf import DATA_DIR
 import time as time_module
 import psutil
 import subprocess as _subprocess
@@ -546,15 +546,20 @@ def clean_expired_minute_data(retain_months: int = 6, dry_run: bool = False) -> 
 
 def test_minute_data_collection():
     """测试分钟数据采集"""
-    from quant_etf.conf import ALL_POOL
+    from quant_etf.pool_loader import get_stock_pool
 
     logger.info("Testing minute data collector with PostgreSQL...")
 
     # 初始化表
     init_minute_db()
 
-    # 测试获取数据
-    test_codes = ALL_POOL[:3]
+    # 动态获取所有池，取前 3 只测试
+    all_pool = (
+        get_stock_pool("etf")
+        + get_stock_pool("stock")
+        + get_stock_pool("mid_term")
+    )
+    test_codes = all_pool[:3]
     result = collect_for_pool(test_codes, count=500)
 
     for code, data in result.items():

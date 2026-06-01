@@ -117,7 +117,7 @@ def cmd_minute_collect(args):
     import signal
     import time
     from loguru import logger
-    from quant_etf.conf import ALL_POOL
+    from quant_etf.pool_loader import get_stock_pool
     from quant_etf.minute_collector import (
         is_trading_time,
         wait_until_trading_start,
@@ -140,7 +140,13 @@ def cmd_minute_collect(args):
 
     logger.info("=" * 60)
     logger.info("Minute Data Collector Started")
-    logger.info(f"Total securities in ALL_POOL: {len(ALL_POOL)}")
+    # 动态获取所有池的标的
+    all_pool = (
+        get_stock_pool("etf")
+        + get_stock_pool("stock")
+        + get_stock_pool("mid_term")
+    )
+    logger.info(f"Total securities in dynamic pool: {len(all_pool)}")
     logger.info("=" * 60)
 
     while running:
@@ -153,7 +159,13 @@ def cmd_minute_collect(args):
             current_time = datetime.now().strftime("%H:%M:%S")
             logger.info(f"Starting collection at {datetime.now().strftime('%Y-%m-%d')} {current_time}")
 
-            result = collect_minute_data_for_all(codes=ALL_POOL, count=500)
+            # 每轮重新读取，以便通达信板块更新后自动生效
+            all_pool = (
+                get_stock_pool("etf")
+                + get_stock_pool("stock")
+                + get_stock_pool("mid_term")
+            )
+            result = collect_minute_data_for_all(codes=all_pool, count=500)
             logger.info(f"Collection completed: {result}")
 
             # 等待约 60 秒再采集下一轮，每秒检查一次中断
@@ -179,7 +191,7 @@ def cmd_minute_backfill(args):
     log_dir.mkdir(exist_ok=True)
     logger.add(log_dir / "minute_backfill_{time:YYYY-MM-DD}.log", rotation="10 MB", encoding="utf-8")
 
-    from quant_etf.conf import ALL_POOL
+    from quant_etf.pool_loader import get_stock_pool
     from quant_etf.minute_collector import (
         get_minute_bars,
         save_minute_data_from_dicts,
@@ -211,7 +223,11 @@ def cmd_minute_backfill(args):
         logger.warning("未找到交易日，退出")
         return
 
-    codes = args.codes.split(",") if args.codes else list(ALL_POOL)
+    codes = args.codes.split(",") if args.codes else (
+        get_stock_pool("etf")
+        + get_stock_pool("stock")
+        + get_stock_pool("mid_term")
+    )
     bars_per_day = 250
     total_bars_needed = len(trading_dates) * bars_per_day
 

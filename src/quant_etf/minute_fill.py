@@ -293,20 +293,26 @@ def audit_minute_gaps(
 
 
 def ensure_minute_data_ready() -> None:
-    """Dashboard 启动入口：仅在主节点时自动补全 ETF 分钟数据。
+    """Dashboard 启动入口：仅在主节点时自动补全所有池的分钟数据。
 
     失败不阻塞启动，仅记录日志警告。
     """
     from quant_etf.dashboard.config import IS_PRIMARY
-    from quant_etf.conf import ETF_POOL
+    from quant_etf.pool_loader import get_stock_pool
 
     if not IS_PRIMARY:
         logger.debug("ensure_minute_data_ready: skipped (not primary)")
         return
 
-    logger.info("ensure_minute_data_ready: starting ETF minute fill...")
+    logger.info("ensure_minute_data_ready: starting minute fill...")
     try:
-        stats = fill_minute_gaps(ETF_POOL, max_days=60)
+        # 动态获取所有池（ETF + 短线股票 + 中期反弹）
+        all_codes = (
+            get_stock_pool("etf")
+            + get_stock_pool("stock")
+            + get_stock_pool("mid_term")
+        )
+        stats = fill_minute_gaps(all_codes, max_days=60)
         logger.info(
             f"ensure_minute_data_ready: done - "
             f"{stats['success']}/{stats['total']} success, "

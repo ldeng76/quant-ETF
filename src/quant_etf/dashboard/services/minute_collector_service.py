@@ -96,7 +96,7 @@ class MinuteCollectorService:
     """
     分钟K线交易时段采集服务。
 
-    在交易时段窗口内每分钟采集 ETF_POOL 的分钟K线数据。
+    在交易时段窗口内每分钟采集动态股票池（ETF+短线+中期）的分钟K线数据。
     """
 
     def __init__(self):
@@ -154,7 +154,7 @@ class MinuteCollectorService:
 
     def _collect_loop(self) -> None:
         """采集循环：在窗口内每 60 秒采集一次"""
-        from quant_etf.conf import ETF_POOL
+        from quant_etf.pool_loader import get_stock_pool
         from quant_etf.minute_collector import (
             get_minute_bars,
             get_latest_minute_time,
@@ -165,7 +165,13 @@ class MinuteCollectorService:
             collected_count = 0
             new_bars_count = 0
 
-            for code in ETF_POOL:
+            # 动态获取所有池的标的（ETF + 短线股票 + 中期反弹）
+            all_codes = (
+                get_stock_pool("etf")
+                + get_stock_pool("stock")
+                + get_stock_pool("mid_term")
+            )
+            for code in all_codes:
                 try:
                     data = get_minute_bars(code, count=COLLECT_COUNT)
                     if not data:
@@ -195,7 +201,7 @@ class MinuteCollectorService:
             if collected_count > 0:
                 logger.info(
                     f"minute_collector_service: round complete - "
-                    f"{collected_count}/{len(ETF_POOL)} codes, {new_bars_count} new bars"
+                    f"{collected_count}/{len(all_codes)} codes, {new_bars_count} new bars"
                 )
 
             # 等待下一轮
