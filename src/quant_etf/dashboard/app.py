@@ -18,8 +18,6 @@ from .services.sse_manager import sse_manager
 from .services.scheduler import scheduler
 from .services.startup_preload import start_background_preload
 from .auth import is_auth_enabled
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager（替换 @app.on_event）"""
@@ -29,23 +27,17 @@ async def lifespan(app: FastAPI):
         logger.info("Authentication: enabled (JWT)")
     else:
         logger.warning("Authentication: DISABLED (no JWT_SECRET_KEY)")
-
     # 初始化数据库
     init_db()
     run_migrations()
-
     # 启动后台预加载任务
     try:
         await start_background_preload()
     except Exception as e:
         logger.warning(f"Background preload skipped: {e}")
-
     logger.info(f"Dashboard ready on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
-
     yield  # 应用运行在这里
-
     # Shutdown
-    import sys
     print(">>> Dashboard shutting down...", flush=True)
     logger.info("Dashboard shutting down...")
     from .services.minute_collector_service import stop_minute_collector_service
@@ -65,7 +57,11 @@ async def lifespan(app: FastAPI):
     await close_pool()
     logger.info("Dashboard shutdown complete")
     print(">>> Dashboard shutdown complete", flush=True)
-
+# FastAPI 应用实例（必须在模块级，供 uvicorn 引用）
+app = FastAPI(
+    title="Quant ETF Dashboard",
+    lifespan=lifespan,
+)
 # 挂载路由
 app.include_router(auth_router)          # /auth/*
 app.include_router(wechat_api_router)    # /api/* (微信小程序)
