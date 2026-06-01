@@ -14,11 +14,10 @@ from loguru import logger
 from quant_etf.bar_interval import DEFAULT_INTERVAL
 from quant_etf.conf import (
     ETF_POOL,
-    STOCK_POOL,
-    MID_TERM_STOCK_POOL,
     TOP_N,
     PROJECT_ROOT,
 )
+from quant_etf.pool_loader import get_stock_pool
 from quant_etf.data_source import ETFDataSource
 from quant_etf.trading_day import is_intraday
 from quant_etf.strategy import StrategyEngine, ETFScore, StockScore, ReboundStockScore
@@ -353,9 +352,10 @@ class ShortTermStockTask(BaseTask):
     title = "短线股票"
 
     def get_pool(self) -> List[str]:
+        """短线股票池：优先 override，其次动态从通达信读取"""
         if self._override_pool is not None and "stock" in self._override_pool:
             return self._override_pool["stock"]
-        return STOCK_POOL
+        return get_stock_pool("stock")
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
         """
@@ -416,9 +416,10 @@ class MidTermReboundTask(BaseTask):
     title = "中期反弹"
 
     def get_pool(self) -> List[str]:
+        """中期反弹池：优先 override，其次动态从通达信读取"""
         if self._override_pool is not None and "mid_term" in self._override_pool:
             return self._override_pool["mid_term"]
-        return MID_TERM_STOCK_POOL
+        return get_stock_pool("mid_term")
 
     def load_data(self, pool: List[str]) -> Dict[str, pd.DataFrame]:
         """

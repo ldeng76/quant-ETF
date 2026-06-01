@@ -73,27 +73,47 @@ class TestCalcBarsToFetch:
 class TestGetPoolCodes:
     """测试 _get_pool_codes(pool_name)"""
 
-    def test_etf_pool(self):
+    def test_etf_pool(self, monkeypatch):
         from quant_etf.minute_fill import _get_pool_codes
         from quant_etf.conf import ETF_POOL
+        monkeypatch.setattr("quant_etf.pool_loader.get_stock_pool", lambda t: {
+            "etf": list(ETF_POOL),
+            "stock": ["000001", "600000"],
+            "mid_term": ["000002"],
+        }.get(t, []))
         result = _get_pool_codes("etf")
         assert result == list(ETF_POOL)
 
-    def test_stock_pool(self):
+    def test_stock_pool(self, monkeypatch):
         from quant_etf.minute_fill import _get_pool_codes
         from quant_etf.conf import STOCK_POOL
+        monkeypatch.setattr("quant_etf.pool_loader.get_stock_pool", lambda t: {
+            "etf": ["510050"],
+            "stock": list(STOCK_POOL),
+            "mid_term": ["000002"],
+        }.get(t, []))
         result = _get_pool_codes("stock")
         assert result == list(STOCK_POOL)
 
-    def test_all_pool(self):
+    def test_all_pool(self, monkeypatch):
         from quant_etf.minute_fill import _get_pool_codes
-        from quant_etf.conf import ALL_POOL
+        from quant_etf.conf import ETF_POOL, STOCK_POOL, MID_TERM_STOCK_POOL
+        monkeypatch.setattr("quant_etf.pool_loader.get_stock_pool", lambda t: {
+            "etf": list(ETF_POOL),
+            "stock": list(STOCK_POOL),
+            "mid_term": list(MID_TERM_STOCK_POOL),
+        }.get(t, []))
         result = _get_pool_codes("all")
-        assert result == list(ALL_POOL)
+        assert result == list(ETF_POOL) + list(STOCK_POOL) + list(MID_TERM_STOCK_POOL)
 
-    def test_unknown_defaults_to_etf(self):
+    def test_unknown_defaults_to_etf(self, monkeypatch):
         from quant_etf.minute_fill import _get_pool_codes
         from quant_etf.conf import ETF_POOL
+        monkeypatch.setattr("quant_etf.pool_loader.get_stock_pool", lambda t: {
+            "etf": list(ETF_POOL),
+            "stock": ["000001"],
+            "mid_term": ["000002"],
+        }.get(t, []))
         result = _get_pool_codes("nonexistent")
         assert result == list(ETF_POOL)
 

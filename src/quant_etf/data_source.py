@@ -179,8 +179,11 @@ class ETFDataSource:
                 pass
 
             # 检查是否缺失
-            from quant_etf.conf import ETF_POOL, STOCK_POOL, MID_TERM_STOCK_POOL
-            all_codes = {normalize_code(c) for c in (list(ETF_POOL) + list(STOCK_POOL) + list(MID_TERM_STOCK_POOL))}
+            from quant_etf.pool_loader import get_stock_pool
+            all_codes = {
+                normalize_code(c)
+                for c in (get_stock_pool("etf") + get_stock_pool("stock") + get_stock_pool("mid_term"))
+            }
             missing_codes = all_codes - existing_codes
 
             if missing_codes:
@@ -753,14 +756,17 @@ class ETFDataSource:
         """
         from missing_code_finder import normalize_code
         from simple_stock_api import SimpleStockAPI
-        from quant_etf.conf import ETF_POOL, STOCK_POOL, MID_TERM_STOCK_POOL
+        from quant_etf.pool_loader import get_stock_pool
 
         if target_file is None:
             target_file = DATA_DIR / "meta" / "stock_code_name.json"
         else:
             target_file = Path(target_file)
 
-        all_codes = sorted({normalize_code(c) for c in (list(ETF_POOL) + list(STOCK_POOL) + list(MID_TERM_STOCK_POOL))})
+        all_codes = sorted({
+            normalize_code(c)
+            for c in (get_stock_pool("etf") + get_stock_pool("stock") + get_stock_pool("mid_term"))
+        })
         logger.info(f"开始全量校准股票代码名称，目标文件: {target_file}，共 {len(all_codes)} 个代码 (dry_run={dry_run})")
 
         # 加载现有 JSON

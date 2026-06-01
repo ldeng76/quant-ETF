@@ -16,7 +16,8 @@ from typing import Dict, List
 
 from loguru import logger
 
-from quant_etf.conf import ETF_POOL, STOCK_POOL, MID_TERM_STOCK_POOL
+from quant_etf.conf import ETF_POOL
+from quant_etf.pool_loader import get_stock_pool
 from quant_etf.scheduler_cache import get_cache
 from quant_etf.tasks import TaskRegistry
 
@@ -26,10 +27,11 @@ from quant_etf.tasks import TaskRegistry
 # ============================================================
 
 # Pool type → default codes (public pools, shared by all users)
+# stock / mid_term 留空：Task 会自己从通达信动态读取
 PUBLIC_POOLS: Dict[str, List[str]] = {
     "etf": list(ETF_POOL),
-    "stock": list(STOCK_POOL),
-    "mid_term": list(MID_TERM_STOCK_POOL),
+    "stock": [],
+    "mid_term": [],
 }
 
 ALL_POOL_TYPES = ("etf", "stock", "mid_term")
@@ -41,19 +43,13 @@ ALL_POOL_TYPES = ("etf", "stock", "mid_term")
 
 def get_user_codes(user_id: int, pool_type: str) -> List[str]:
     """
-    返回用户的合并证券池（public + private）。
-
-    - 以 PUBLIC_POOLS[pool_type] 为基础
-    - 追加数据库中用户私有证券池
+    返回用户的私有证券池（仅 private）。
+    public 部分由 Task.get_pool() 动态从通达信读取，不在这里合并。
     """
     from quant_etf.scheduler_db import get_user_pool
 
-    codes = list(PUBLIC_POOLS.get(pool_type, []))
     private_codes = get_user_pool(user_id, pool_type)
-    if private_codes:
-        codes.extend(private_codes)
-    # Deduplicate while preserving order (public first)
-    return list(dict.fromkeys(codes))
+    return list(dict.fromkeys(private_codes)) if private_codes else []
 
 
 def get_all_codes(interval: str) -> set[str]:
@@ -65,10 +61,13 @@ def get_all_codes(interval: str) -> set[str]:
 
     users = get_all_users()
     all_codes: set[str] = set()
+    # 先把公共池的全集加进去（stock/mid_term 动态读取）
+    for pool_type in ALL_POOL_TYPES:
+        all_codes.update(get_stock_pool(pool_type))
+    # 再加各用户的私有池
     for user in users:
         for pool_type in ALL_POOL_TYPES:
-            codes = get_user_codes(user["id"], pool_type)
-            all_codes.update(codes)
+            all_codes.update(get_user_codes(user["id"], pool_type))
     return all_codes
 
 
@@ -95,17 +94,21 @@ def run_single_user_strategy(user: dict, interval: str) -> List[dict]:
     user_id = user["id"]
     username = user.get("name", str(user_id))
 
-    # 1. 获取该用户在各 pool_type 下的合并证券池
-    etf_codes = get_user_codes(user_id, "etf")
-    stock_codes = get_user_codes(user_id, "stock")
-    mid_codes = get_user_codes(user_id, "mid_term")
+    # 1. 获取该用户的私有证券池
+    etf_private = get_user_codes(user_id, "etf")
+    stock_private = get_user_codes(user_id, "stock")
+    mid_private = get_user_codes(user_id, "mid_term")
 
-    # 2. 构建 per-task pool override
-    override_pool = {
-        "etf": etf_codes,
-        "stock": stock_codes,
-        "mid_term": mid_codes,
-    }
+    # 2. 构建 per-task pool override（仅在有私有池时注入）
+    override_pool: Dict[str, List[str]] = {}
+    if etf_private:
+        # 用户私有 ETF 池需要和公共 ETF 池合并后覆盖
+        override_pool["etf"] = list(dict.fromkeys(list(ETF_POOL) + etf_private))
+    if stock_private:
+        # 有私有池时：动态公共池 + 私有池
+        override_pool["stock"] = list(dict.fromkeys(get_stock_pool("stock") + stock_private))
+    if mid_private:
+        override_pool["mid_term"] = list(dict.fromkeys(get_stock_pool("mid_term") + mid_private))
 
     rankings: List[dict] = []
     task_names = ["etf", "short", "mid"]

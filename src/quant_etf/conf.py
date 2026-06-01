@@ -75,6 +75,8 @@ STOCK_POOL_todel = [
     "601869", "688195"
 ]
 
+# [参考] 短线股票池的历史硬编码列表，运行时不再使用。
+# 实际股票池由 pool_loader.get_stock_pool("stock") 从通达信板块 TDXRG 读取。
 STOCK_POOL = [
     "688981",     "000063",     "000547",     "000554",     "000968",
     "000988",     "001896",     "002050",     "002131",     "002155",
@@ -88,6 +90,8 @@ STOCK_POOL = [
     "601857",     "601872",     "601899",     "603619",     "603993"
 ]
 
+# [参考] 中期反弹池的历史硬编码列表，运行时不再使用。
+# 实际股票池由 pool_loader.get_stock_pool("mid_term") 从通达信板块 MIDTERM 读取。
 MID_TERM_STOCK_POOL = [
     "300870", "300570", "002837", "300620", "300456",
     "688205", "688195", "002851", "300814", "002364",
@@ -108,8 +112,8 @@ MID_TERM_STOCK_POOL = [
     "300894", "002271", "000031", "300364", "002714"
 ]
 
-ALL_POOL = list(dict.fromkeys([*ETF_POOL]))
-# ALL_POOL = list(dict.fromkeys([*MID_TERM_STOCK_POOL, *STOCK_POOL, *ETF_POOL]))
+#ALL_POOL = list(dict.fromkeys([*ETF_POOL]))
+ALL_POOL = list(dict.fromkeys([*MID_TERM_STOCK_POOL, *STOCK_POOL, *ETF_POOL]))
 
 # 通达信配置
 # 支持环境变量 TDX_DATA_PATH 指定通达信数据目录
@@ -128,6 +132,14 @@ TDX_BLOCK_DIR = TDX_DIR / "T0002" / "blocknew"
 
 # 自定义板块名称 (不需要加后缀 .blk)
 TDX_CUSTOM_BLOCK_NAME = "高分etf"
+
+# 各策略的股票池对应的通达信板块文件名（不含 .blk 后缀）
+# - stock:    短线股票池（ShortTermStockTask 使用）
+# - mid_term: 中期反弹池（MidTermReboundTask 使用）
+TDX_STOCK_BLOCKS = {
+    "stock": "TDXRG",
+    "mid_term": "MIDTERM",
+}
 
 # 策略权重配置 (可在此处调整)
 # 这种调整适合 市场热点轮动极快、趋势持续性较差 的震荡市或牛市初期，此时“追涨杀跌”的效率可能高于“捂股不动”。但在趋势明确的单边行情中，可能会频繁丢掉稳健上涨的长期牛股。

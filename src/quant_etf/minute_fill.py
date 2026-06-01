@@ -15,14 +15,14 @@ def _get_pool_codes(pool_name: str) -> list[str]:
     :param pool_name: "etf" / "stock" / "all"
     :return: 代码列表
     """
-    from quant_etf.conf import ETF_POOL, STOCK_POOL, ALL_POOL
+    from quant_etf.pool_loader import get_stock_pool
 
     pools = {
-        "etf": ETF_POOL,
-        "stock": STOCK_POOL,
-        "all": ALL_POOL,
+        "etf": get_stock_pool("etf"),
+        "stock": get_stock_pool("stock"),
+        "all": get_stock_pool("etf") + get_stock_pool("stock") + get_stock_pool("mid_term"),
     }
-    return list(pools.get(pool_name.lower(), ETF_POOL))
+    return list(pools.get(pool_name.lower(), get_stock_pool("etf")))
 
 
 def _calc_bars_to_fetch(
