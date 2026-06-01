@@ -45,16 +45,26 @@ async def lifespan(app: FastAPI):
     yield  # 应用运行在这里
 
     # Shutdown
+    import sys
+    print(">>> Dashboard shutting down...", flush=True)
     logger.info("Dashboard shutting down...")
-    scheduler.stop_all()
     from .services.minute_collector_service import stop_minute_collector_service
+    # 先停止 collector（设置 stop event，唤醒 timer）
     stop_minute_collector_service()
+    print(">>> collector stopped", flush=True)
+    # 让 I/O 完成一轮
+    await asyncio.sleep(0)
+    print(">>> I/O processed", flush=True)
+    # scheduler.stop_all() 有超时保护，最多等 2 秒
+    try:
+        await asyncio.wait_for(scheduler.stop_all(), timeout=2.0)
+    except asyncio.TimeoutError:
+        logger.warning("scheduler.stop_all() timed out, forcing shutdown")
+    print(">>> scheduler stopped", flush=True)
     await sse_manager.close()
     await close_pool()
     logger.info("Dashboard shutdown complete")
-
-
-app = FastAPI(title="quant-ETF Dashboard", version="2.0.0", lifespan=lifespan)
+    print(">>> Dashboard shutdown complete", flush=True)
 
 # 挂载路由
 app.include_router(auth_router)          # /auth/*
