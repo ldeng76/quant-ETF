@@ -8,7 +8,6 @@
     <div class="card mb-3">
         <div class="card-body">
             <h5 class="card-title">选择策略</h5>
-
             <div class="mb-2 d-flex align-items-center gap-2">
                 <label class="form-label mb-0 small">K线周期:</label>
                 <select class="form-select form-select-sm" style="width:auto" x-model="barInterval" id="bar-interval">
@@ -21,18 +20,14 @@
                     ⚠ 分钟周期需要先回填数据，请确保已运行 `quant-etf minute-backfill`
                 </span>
             </div>
-
+            <div id="strategy-list">
+                <div class="spinner-border spinner-border-sm"></div> 加载策略列表...
+            </div>
+        </div>
     </div>
     <div id="strategy-result">
         <div class="text-muted small">选择策略后执行查看结果</div>
     </div>
-        </div>
-    </div>
-
-    <div id="strategy-result">
-        <div class="text-muted small">选择策略后点击执行查看结果</div>
-    </div>
-</div>
 
 <script>
     // 加载策略列表
@@ -50,6 +45,18 @@
                 `).join('');
                 document.getElementById('strategy-list').innerHTML = html;
             });
+    })();
+    // SSE 监听：scheduler 执行完成后自动加载结果
+    (function() {
+        const evtSource = new EventSource('/events');
+        evtSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'strategy_result' && data.run_id) {
+                    htmx.ajax('GET', '/api/strategy/results/' + data.run_id, {target: '#strategy-result'});
+                }
+            } catch(e) {}
+        };
     })();
 </script>
 {% endblock %}
