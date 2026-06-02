@@ -258,6 +258,13 @@ class MinuteCollectorService:
                     f"{collected_count}/{len(all_codes)} codes, {new_bars_count} new bars"
                 )
 
+            # 采集完成回调：触发所有 enabled 的定时策略重算
+            try:
+                from .scheduler import scheduler
+                scheduler.on_collection_complete(datetime.now())
+            except Exception as e:
+                logger.warning(f"minute_collector_service: scheduler callback failed: {e}")
+
             # 等待下一轮：对齐5分钟K线节点
             if not self._stop_event.is_set() and is_in_trading_window():
                 wait = calc_seconds_to_next_bar()

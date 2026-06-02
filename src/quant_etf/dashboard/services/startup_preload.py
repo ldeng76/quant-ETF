@@ -1,4 +1,3 @@
-from .minute_collector_service import start_minute_collector_service
 """
 启动时后台预加载核心数据
 
@@ -9,6 +8,7 @@ import asyncio
 import threading
 from loguru import logger
 from .scheduler import scheduler
+from .minute_collector_service import start_minute_collector_service
 from ..config import IS_PRIMARY
 
 # 预加载状态
@@ -42,12 +42,16 @@ async def start_background_preload():
     """
     global _preload_completed, _preload_error
 
+    # 捕获主事件循环，供 scheduler 回调使用（必须在主线程中执行）
+    main_loop = asyncio.get_event_loop()
+
     def _preload_in_thread():
         global _preload_completed, _preload_error
         try:
             preload_market_state()
             if IS_PRIMARY:
-                asyncio.run(scheduler.start_all())
+                scheduler.set_main_loop(main_loop)
+                logger.info("Scheduler: main loop injected")
             start_minute_collector_service()
             _preload_completed = True
         except Exception as e:

@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
-VALID_INTERVALS = {"1d", "15m", "30m", "60m"}
+VALID_INTERVALS = {"1d", "5m", "15m", "30m", "60m"}
 
 
 class UserModel(BaseModel):
@@ -62,7 +62,7 @@ class AlertUpdate(BaseModel):
 
 class ScheduleCreate(BaseModel):
     strategy: str
-    interval: int = Field(..., ge=60)  # 最少60秒
+    interval: int = Field(default=0, ge=0)  # 0=自动（由采集服务驱动）
     bar_interval: str = "1d"
 
     @field_validator("bar_interval")

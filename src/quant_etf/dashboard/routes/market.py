@@ -3,7 +3,6 @@
 schedules 表为全局配置，CRUD 需要 admin 权限
 market/status / overview 为读操作，普通用户可访问
 """
-import asyncio
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -100,7 +99,6 @@ async def create_schedule(request: Request, data: ScheduleCreate, user: dict = D
 @router.delete("/schedules/{schedule_id}")
 async def delete_schedule(request: Request, schedule_id: int, user: dict = Depends(require_admin)):
     """删除调度（仅管理员）"""
-    await scheduler.stop(schedule_id)
     execute("DELETE FROM schedules WHERE id = %s", [schedule_id])
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
     _enrich_schedules_with_title(schedules)
@@ -117,14 +115,11 @@ async def toggle_schedule(request: Request, schedule_id: int, user: dict = Depen
     if not s:
         raise HTTPException(404, "Schedule not found")
     if s["enabled"]:
-        # 已启用 → 停止
-        await scheduler.stop(schedule_id)
+        # 已启用 → 停止（仅更新 DB 标志，调度器由采集服务驱动）
         execute("UPDATE schedules SET enabled = FALSE WHERE id = %s", [schedule_id])
     else:
-        # 已停用 → 启动
+        # 已停用 → 启动（下一轮采集完成后自动触发）
         execute("UPDATE schedules SET enabled = TRUE WHERE id = %s", [schedule_id])
-        bar_interval = s.get("bar_interval", "1d")
-        asyncio.create_task(scheduler.start_loop(schedule_id, s["strategy"], s["interval"], bar_interval))
     schedules = query("SELECT * FROM schedules ORDER BY strategy")
     _enrich_schedules_with_title(schedules)
     return templates.TemplateResponse(
