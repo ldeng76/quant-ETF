@@ -18,7 +18,8 @@ TRADING_WINDOWS = [
 
 # 采集参数(硬编码,后续可扩展为可配置)
 COLLECT_COUNT = 50       # 每次采集 K 线条数
-COLLECT_INTERVAL = 120   # 采集间隔秒数
+BAR_INTERVAL_MINUTES = 5  # K线基数据粒度(分钟)
+COLLECT_OFFSET_SECONDS = 5  # 每根K线生成后延迟N秒再采集，确保数据就绪
 
 
 def is_in_trading_window(now: datetime | None = None) -> bool:
@@ -36,6 +37,51 @@ def is_in_trading_window(now: datetime | None = None) -> bool:
         if start <= current <= end:
             return True
     return False
+
+
+def calc_seconds_to_next_bar(now: datetime | None = None) -> int:
+    """
+    计算到下一个5分钟K线节点 + OFFSET 秒的等待时间。
+
+    5分钟K线在 09:30,09:35,09:40,... 整点生成，
+    延迟 COLLECT_OFFSET_SECONDS 秒后采集以确保数据就绪。
+    例：09:35:00 生成K线 → 09:35:05 开始采集。
+
+    :param now: 当前时间
+    :return: 等待秒数，0 表示已过节点应立即采集
+    """
+    if now is None:
+        now = datetime.now()
+
+    interval = BAR_INTERVAL_MINUTES
+    offset = COLLECT_OFFSET_SECONDS
+
+    # 计算当前时间在本小时内已过的分钟数
+    minute_of_hour = now.minute
+    second = now.second
+
+    # 当前已过秒数（从本小时开始算）
+    elapsed = minute_of_hour * 60 + second
+
+    # 当前周期节点 = floor(minute / interval) * interval
+    current_bar_minute = (minute_of_hour // interval) * interval
+    # 当前节点的目标采集时刻 = 节点分钟 * 60 + offset
+    current_bar_target = current_bar_minute * 60 + offset
+
+    # 如果当前时刻 <= 当前节点的采集时刻，说明当前K线已生成，立即采集
+    if elapsed <= current_bar_target:
+        return 0
+
+    # 否则等待下一个节点
+    next_bar_minute = current_bar_minute + interval
+    if next_bar_minute >= 60:
+        # 跨小时，简单返回 interval*60 - elapsed + offset
+        wait = interval * 60 - elapsed + offset
+    else:
+        next_bar_target = next_bar_minute * 60 + offset
+        wait = next_bar_target - elapsed
+
+    return max(1, int(wait))
 
 
 def calc_wait_seconds(now: datetime | None = None) -> int:
@@ -153,7 +199,7 @@ class MinuteCollectorService:
         thread.start()
 
     def _collect_loop(self) -> None:
-        """采集循环：在窗口内每 60 秒采集一次"""
+        """采集循环：在窗口内对齐5分钟K线节点采集"""
         from quant_etf.pool_loader import get_stock_pool
         from quant_etf.minute_collector import (
             get_minute_bars,
@@ -162,6 +208,14 @@ class MinuteCollectorService:
         )
 
         while not self._stop_event.is_set() and is_in_trading_window():
+            # 等待下一个5分钟K线节点
+            wait = calc_seconds_to_next_bar()
+            if wait > 0 and not self._stop_event.is_set():
+                logger.debug(f"minute_collector_service: waiting {wait}s for next 5min bar node")
+                self._stop_event.wait(timeout=wait)
+                if self._stop_event.is_set() or not is_in_trading_window():
+                    break
+
             collected_count = 0
             new_bars_count = 0
 
@@ -204,12 +258,15 @@ class MinuteCollectorService:
                     f"{collected_count}/{len(all_codes)} codes, {new_bars_count} new bars"
                 )
 
-            # 等待下一轮
+            # 等待下一轮：对齐5分钟K线节点
             if not self._stop_event.is_set() and is_in_trading_window():
-                self._timer = threading.Timer(COLLECT_INTERVAL, self._collect_loop)
+                wait = calc_seconds_to_next_bar()
+                if wait <= 0:
+                    wait = BAR_INTERVAL_MINUTES * 60  # 强制等到下一节点
+                self._timer = threading.Timer(wait, self._collect_loop)
                 self._timer.daemon = True
                 self._timer.start()
-                break  # 退出当前循环，由 Timer 触发下一轮
+                break  # 始终退出当前循环，由 Timer 触发下一轮
 
         # 窗口结束，调度下一窗口
         if not self._stop_event.is_set():

@@ -168,8 +168,11 @@ def cmd_minute_collect(args):
             result = collect_minute_data_for_all(codes=all_pool, count=500)
             logger.info(f"Collection completed: {result}")
 
-            # 等待约 60 秒再采集下一轮，每秒检查一次中断
-            for _ in range(60):
+            # 等待下一个5分钟K线节点（整点 + 5秒），每秒检查一次中断
+            from quant_etf.dashboard.services.minute_collector_service import calc_seconds_to_next_bar
+            wait = calc_seconds_to_next_bar()
+            logger.debug(f"Waiting {wait}s for next 5min bar node")
+            for _ in range(wait):
                 if not running:
                     break
                 time.sleep(1)
