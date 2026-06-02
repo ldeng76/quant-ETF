@@ -1,7 +1,6 @@
-"""
-分钟级K线数据采集器模块
+"""分钟级K线数据采集器模块
 
-提供获取、存储和管理分钟级K线数据的功能。
+提供获取、存储和管理5分钟级K线数据的功能。
 使用 PostgreSQL 数据库存储。
 """
 import pandas as pd
@@ -138,13 +137,13 @@ _MAX_BARS_PER_CALL = 800
 
 
 def _fetch_bars_paginated(api, market: int, code: str, count: int) -> list[dict]:
-    """通过分页从已连接的 api 获取分钟 K 线，单次最多 800 条"""
+    """通过分页从已连接的 api 获取5分钟K线，单次最多 800 条"""
     all_bars: list[dict] = []
     fetched = 0
     while fetched < count:
         batch_size = min(_MAX_BARS_PER_CALL, count - fetched)
         data = api.get_security_bars(
-            category=8, market=market, code=code, start=fetched, count=batch_size
+            category=0, market=market, code=code, start=fetched, count=batch_size
         )
         if not data:
             break
@@ -163,13 +162,13 @@ def get_minute_bars(
     max_servers: int = 5,
 ) -> list[dict]:
     """
-    获取证券的分钟级K线数据（支持分页，count 可超过 800）
+    获取证券的5分钟级K线数据（支持分页，count 可超过 800）
     :param code: 证券代码 (e.g. "510050", "000001")
     :param count: 获取数量
     :param server: 行情服务器 IP（如果为 None，则自动尝试多个服务器）
     :param port: 行情服务器端口
     :param max_servers: 最多尝试的服务器数量
-    :return: list of dicts 包含分钟级K线数据
+    :return: list of dicts 包含5分钟级K线数据
     """
     api = TdxHq_API()
     market = code_to_market(code)
@@ -226,7 +225,7 @@ def collect_for_pool(
     max_servers: int = 5,
 ) -> dict[str, list[dict]]:
     """
-    批量获取多个证券的分钟K线数据
+    批量获取多个证券的5分钟K线数据
     :param codes: 证券代码列表
     :param count: 每个证券获取数量
     :param server: 服务器 IP
@@ -262,7 +261,7 @@ def close_db_connection():
 
 
 def init_minute_db():
-    """初始化分钟数据数据库（PG 不需要初始化，确保表存在即可）"""
+    """初始化5分钟数据数据库（PG 不需要初始化，确保表存在即可）"""
     conn = _get_pg_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -293,9 +292,9 @@ def init_minute_db():
 
 def save_minute_data(code: str, df: pd.DataFrame) -> bool:
     """
-    保存分钟数据到 PostgreSQL 数据库
+    保存5分钟数据到 PostgreSQL 数据库
     :param code: 证券代码
-    :param df: 包含分钟数据的 DataFrame
+    :param df: 包含5分钟数据的 DataFrame
     :return: 是否保存成功
     """
     if df.empty:
@@ -350,7 +349,7 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
         """, data)
         conn.commit()
 
-        logger.debug(f"Saved {len(data)} minute bars for {code}")
+        logger.debug(f"Saved {len(data)} 5-minute bars for {code}")
         return True
 
     except Exception as e:
@@ -360,9 +359,9 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
 
 def save_minute_data_from_dicts(code: str, data: list[dict]) -> bool:
     """
-    保存分钟数据到 PostgreSQL 数据库（使用 dict list）
+    保存5分钟数据到 PostgreSQL 数据库（使用 dict list）
     :param code: 证券代码
-    :param data: 包含分钟数据的 dict list
+    :param data: 包含5分钟数据的 dict list
     :return: 是否保存成功
     """
     if not data:
@@ -385,7 +384,7 @@ def query_minute_data(
     limit: int = 5000,
 ) -> pd.DataFrame:
     """
-    从 PostgreSQL 数据库加载分钟数据
+    从 PostgreSQL 数据库加载5分钟数据
     :param code: 证券代码
     :param start: 开始时间
     :param end: 结束时间
@@ -439,7 +438,7 @@ def load_minute_data(
 
 def get_latest_minute_time(code: str) -> Optional[datetime]:
     """
-    获取某证券最新一条分钟数据的时间
+    获取某证券最新一条5分钟数据的时间
     :param code: 证券代码
     :return: 最新时间
     """
@@ -545,7 +544,7 @@ def clean_expired_minute_data(retain_months: int = 6, dry_run: bool = False) -> 
 
 
 def test_minute_data_collection():
-    """测试分钟数据采集"""
+    """测试5分钟数据采集"""
     from quant_etf.pool_loader import get_stock_pool
 
     logger.info("Testing minute data collector with PostgreSQL...")

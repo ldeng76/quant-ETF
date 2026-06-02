@@ -23,7 +23,7 @@ class BarInterval:
 
 INTERVALS: dict[str, BarInterval] = {
     "1d": BarInterval("1d", "日线", "1D", 1, 9, is_daily=True),
-    "5m": BarInterval("5m", "5分钟", "5min", 48, 8, tdx_category_direct=0),
+    "5m": BarInterval("5m", "5分钟", "5min", 48, 0, is_daily=False),
     "15m": BarInterval("15m", "15分钟", "15min", 16, 8, tdx_category_direct=1),
     "30m": BarInterval("30m", "30分钟", "30min", 8, 8, tdx_category_direct=2),
     "60m": BarInterval("60m", "60分钟", "60min", 4, 8, tdx_category_direct=3),

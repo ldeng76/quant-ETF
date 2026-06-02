@@ -49,7 +49,7 @@ class ETFMonitor:
 
     def fetch_realtime_data(self) -> dict[str, pd.DataFrame]:
         """
-        获取实时1分钟数据并保存
+        获取实时5分钟数据并保存
         """
         pool_data = {}
         for code in self.etf_pool:

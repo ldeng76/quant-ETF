@@ -69,14 +69,16 @@ class StrategyEngine:
     def calculate_returns(self, df: pd.DataFrame) -> Dict[str, float]:
         """
         计算单只 ETF 的各周期涨幅
+        b60/b20/b10/b5 为回看的K线根数（注意：不是交易日天数）
         """
-        min_bars = 61
+        # K线根数：数据已经是目标周期，直接取 N 根
+        b60, b20, b10, b5 = 60, 20, 10, 5
+        min_bars = b60 + 1
+
         if df.empty or len(df) < min_bars:
             return {}
 
         current_price = df.iloc[-1]["close"]
-
-        b60, b20, b10, b5 = 60, 20, 10, 5
 
         try:
             p60 = df.iloc[-(b60 + 1)]["close"]

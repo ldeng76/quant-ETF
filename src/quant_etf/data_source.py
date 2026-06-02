@@ -486,7 +486,7 @@ class ETFDataSource:
     def _load_minute_data_resampled(
         self, code: str, interval: BarInterval
     ) -> pd.DataFrame:
-        """从1分钟数据重采样为目标周期（DuckDB 引擎）"""
+        """从5分钟数据重采样为目标周期（DuckDB 引擎）"""
         from quant_etf.minute_resampler import resample_bars
 
         df = resample_bars(code, interval, count=5000)
@@ -505,7 +505,7 @@ class ETFDataSource:
     def _load_minute_data_resampled_batch(
         self, codes: List[str], interval: BarInterval
     ) -> Dict[str, pd.DataFrame]:
-        """批量从1分钟数据重采样（单次PG拉取 + DuckDB聚合）"""
+        """批量从5分钟数据重采样（单次PG拉取 + DuckDB聚合）"""
         from quant_etf.minute_resampler import resample_bars_batch
 
         raw = resample_bars_batch(codes, interval)

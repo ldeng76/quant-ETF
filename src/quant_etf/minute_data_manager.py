@@ -1,7 +1,6 @@
-"""
-15分钟K线数据管理模块
+"""15分钟K线数据管理模块
 
-从1分钟K线数据计算生成15分钟K线，支持查询和更新
+从5分钟K线数据计算生成15分钟K线，支持查询和更新
 使用 PostgreSQL 数据库存储。
 """
 import pandas as pd
@@ -62,8 +61,8 @@ def init_15min_db():
 
 def resample_to_interval(df_1m: pd.DataFrame, interval: BarInterval) -> pd.DataFrame:
     """
-    将1分钟K线重采样为指定周期K线
-    :param df_1m: 1分钟K线数据 DataFrame (必须有 time, open, high, low, close, volume, amount 列)
+    将5分钟K线重采样为指定周期K线
+    :param df_1m: 5分钟K线数据 DataFrame (必须有 time, open, high, low, close, volume, amount 列)
     :param interval: BarInterval 周期配置
     :return: 重采样后的 DataFrame
     """
@@ -99,7 +98,7 @@ def resample_to_interval(df_1m: pd.DataFrame, interval: BarInterval) -> pd.DataF
 
 
 def resample_to_15min(df_1m: pd.DataFrame) -> pd.DataFrame:
-    """向后兼容：将1分钟K线重采样为15分钟K线"""
+    """向后兼容：将5分钟K线重采样为15分钟K线"""
     return resample_to_interval(df_1m, get_interval("15m"))
 
 
@@ -118,7 +117,7 @@ def generate_15min_for_code(code: str, start_date: Optional[datetime] = None) ->
         df_1m = query_minute_data(code)
 
     if df_1m.empty:
-        logger.warning(f"No 1min data found for {code}")
+        logger.warning(f"No 5min data found for {code}")
         return 0
 
     df_15m = resample_to_15min(df_1m)
@@ -240,8 +239,7 @@ def get_15min_bars(
 
 
 def update_15min_data(code: str) -> int:
-    """
-    更新单个代码的15分钟数据（从1分钟重新计算）
+    """更新单个代码的15分钟数据（从5分钟重新计算）
     :param code: ETF代码
     :return: 更新数量
     """

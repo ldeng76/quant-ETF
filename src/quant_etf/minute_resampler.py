@@ -1,7 +1,6 @@
-"""
-DuckDB 内存聚合：分钟K线动态重采样
+"""DuckDB 内存聚合：5分钟K线动态重采样
 
-从 PG minute_bars 拉取1分钟数据，用 DuckDB SQL 聚合为目标周期。
+从 PG minute_bars 拉取5分钟数据，用 DuckDB SQL 聚合为目标周期。
 正确处理 A 股交易时段边界（午休 11:30-13:00 不跨时段聚合）。
 """
 import duckdb
@@ -14,6 +13,10 @@ from quant_etf.bar_interval import BarInterval
 
 # 模块级惰性单例
 _duck_conn: duckdb.DuckDBPyConnection | None = None
+
+
+BASE_BAR_MINUTES = 5  # 基数据粒度（5分钟）
+BARS_PER_DAY = 48     # 5分钟基数据每天48根
 
 
 def _get_duck_conn() -> duckdb.DuckDBPyConnection:
@@ -40,11 +43,11 @@ def _get_pg_conn():
     )
 
 
-def _fetch_1m_single(code: str, count: int, minutes_per_bar: int) -> pd.DataFrame:
-    """从 PG 拉取单只股票的1分钟数据"""
+def _fetch_5m_single(code: str, count: int, bars_to_group: int) -> pd.DataFrame:
+    """从 PG 拉取单只股票的5分钟数据"""
     conn = _get_pg_conn()
     try:
-        fetch_count = count * minutes_per_bar + 240  # 多拉一天做 buffer
+        fetch_count = count * bars_to_group + BARS_PER_DAY  # 多拉一天做 buffer
         cur = conn.cursor()
         cur.execute(
             """
@@ -73,10 +76,10 @@ def _fetch_1m_single(code: str, count: int, minutes_per_bar: int) -> pd.DataFram
     return df
 
 
-def _fetch_1m_batch(
+def _fetch_5m_batch(
     codes: list[str], start_time: Optional[datetime] = None
 ) -> pd.DataFrame:
-    """从 PG 批量拉取多只股票的1分钟数据"""
+    """从 PG 批量拉取多只股票的5分钟数据"""
     conn = _get_pg_conn()
     try:
         cur = conn.cursor()
@@ -135,7 +138,7 @@ WITH ordered AS (
             PARTITION BY code, DATE(time), session
             ORDER BY time
         ) - 1 AS bar_seq
-    FROM minute_bars_1m
+    FROM minute_bars_5m
 ),
 grouped AS (
     SELECT
@@ -148,7 +151,7 @@ grouped AS (
         SUM(volume) AS volume,
         SUM(amount) AS amount
     FROM ordered
-    GROUP BY code, DATE(time), session, bar_seq // {interval_minutes}
+    GROUP BY code, DATE(time), session, bar_seq // {bars_to_group}
 )
 SELECT code, time, open, high, low, close, volume, amount
 FROM grouped
@@ -156,11 +159,11 @@ ORDER BY code, time
 """
 
 
-def _do_aggregate(df_1m: pd.DataFrame, interval_minutes: int, has_code_col: bool) -> pd.DataFrame:
+def _do_aggregate(df_5m: pd.DataFrame, bars_to_group: int) -> pd.DataFrame:
     """在 DuckDB 中执行聚合"""
     conn = _get_duck_conn()
-    conn.register("minute_bars_1m", df_1m)
-    result = conn.execute(_AGG_SQL.format(interval_minutes=interval_minutes)).df()
+    conn.register("minute_bars_5m", df_5m)
+    result = conn.execute(_AGG_SQL.format(bars_to_group=bars_to_group)).df()
     return result
 
 
@@ -170,7 +173,7 @@ def resample_bars(
     count: int = 200,
 ) -> pd.DataFrame:
     """
-    从1分钟K线重采样为目标周期K线（DuckDB 引擎）
+    从5分钟K线重采样为目标周期K线（DuckDB 引擎）
     正确处理 A 股交易时段边界
 
     :param code: 标的代码
@@ -182,15 +185,22 @@ def resample_bars(
         raise ValueError("resample_bars does not support daily interval")
 
     minutes_per_bar = 240 // interval.bars_per_day
+    bars_to_group = minutes_per_bar // BASE_BAR_MINUTES  # 每组多少根5分钟K线
 
-    df_1m = _fetch_1m_single(code, count, minutes_per_bar)
-    if df_1m.empty:
+    df_5m = _fetch_5m_single(code, count, bars_to_group)
+    if df_5m.empty:
         return pd.DataFrame()
 
-    # 单股票没有 code 列，补上以匹配批量 SQL
-    df_1m["code"] = code
+    # 5m 直通：目标周期等于基数据粒度时，无需聚合
+    if bars_to_group == 1:
+        df_5m["code"] = code
+        result = df_5m.tail(count).reset_index(drop=True)
+        return result
 
-    result = _do_aggregate(df_1m, minutes_per_bar, has_code_col=True)
+    # 单股票没有 code 列，补上以匹配批量 SQL
+    df_5m["code"] = code
+
+    result = _do_aggregate(df_5m, bars_to_group)
     if result.empty:
         return pd.DataFrame()
 
@@ -217,12 +227,21 @@ def resample_bars_batch(
         raise ValueError("resample_bars_batch does not support daily interval")
 
     minutes_per_bar = 240 // interval.bars_per_day
+    bars_to_group = minutes_per_bar // BASE_BAR_MINUTES  # 每组多少根5分钟K线
 
-    df_1m = _fetch_1m_batch(codes, start_time)
-    if df_1m.empty:
+    df_5m = _fetch_5m_batch(codes, start_time)
+    if df_5m.empty:
         return {c: pd.DataFrame() for c in codes}
 
-    result = _do_aggregate(df_1m, minutes_per_bar, has_code_col=True)
+    # 5m 直通：目标周期等于基数据粒度时，无需聚合
+    if bars_to_group == 1:
+        out: dict[str, pd.DataFrame] = {}
+        for code in codes:
+            sub = df_5m[df_5m["code"] == code].reset_index(drop=True)
+            out[code] = sub
+        return out
+
+    result = _do_aggregate(df_5m, bars_to_group)
     if result.empty:
         return {c: pd.DataFrame() for c in codes}
 

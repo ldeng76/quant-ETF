@@ -32,7 +32,7 @@ def _calc_bars_to_fetch(
 ) -> int:
     """估算需要从 pytdx 拉取的分钟K线数量。
 
-    A 股每天约 240 根 1 分钟K线，用 250 根/天作为安全余量。
+    A 股每天约 48 根 5 分钟K线，用 50 根/天作为安全余量。
     结果向上取整到 800 的倍数（pytdx 分页对齐）。
 
     :param latest_time: 该代码在 PG 中最新的分钟时间戳，None 表示无数据
@@ -49,8 +49,8 @@ def _calc_bars_to_fetch(
     if days_gap < 0:
         return 0
 
-    # 250 根/天 * 天数，向上取整到 800 的倍数
-    bars = math.ceil(days_gap * 250 / 800) * 800
+    # 50 根/天 * 天数，向上取整到 800 的倍数
+    bars = math.ceil(days_gap * 50 / 800) * 800
     return max(bars, 800)
 
 
@@ -242,7 +242,7 @@ def audit_minute_gaps(
                 now = datetime.now()
                 min_missing = min(missing)
                 days_gap = (now - min_missing).days
-                bars_to_fetch = math.ceil((days_gap + 1) * 250 / 800) * 800
+                bars_to_fetch = math.ceil((days_gap + 1) * 50 / 800) * 800
                 bars_to_fetch = max(bars_to_fetch, 800)
 
                 try:

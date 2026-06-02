@@ -18,13 +18,12 @@ from quant_etf.conf import ETF_POOL
 
 
 def fetch_and_save_1min_data(code: str, total_bars: int = 2000) -> int:
-    """
-    获取并保存1分钟数据
+    """获取并保存5分钟数据
     :param code: ETF代码
     :param total_bars: 总条数
     :return: 保存的条数
     """
-    logger.info(f"Fetching 1min data for {code}...")
+    logger.info(f"Fetching 5min data for {code}...")
 
     all_bars = []
     batch_size = 500
@@ -46,10 +45,10 @@ def fetch_and_save_1min_data(code: str, total_bars: int = 2000) -> int:
     if all_bars:
         success = save_minute_data_from_dicts(code, all_bars)
         if success:
-            logger.info(f"Saved {len(all_bars)} 1min bars for {code}")
+            logger.info(f"Saved {len(all_bars)} 5min bars for {code}")
             return len(all_bars)
         else:
-            logger.error(f"Failed to save 1min data for {code}")
+            logger.error(f"Failed to save 5min data for {code}")
             return 0
 
     return 0
@@ -60,7 +59,7 @@ def init_data(codes: list[str], days: int = 90, skip_1min: bool = False) -> dict
     初始化数据
     :param codes: ETF代码列表
     :param days: 回溯天数
-    :param skip_1min: 是否跳过1分钟数据获取
+    :param skip_1min: 是否跳过5分钟数据获取
     :return: 统计信息
     """
     stats = {
@@ -74,7 +73,7 @@ def init_data(codes: list[str], days: int = 90, skip_1min: bool = False) -> dict
     logger.info(f"Starting initialization for {len(codes)} ETFs ({days} days)")
 
     if not skip_1min:
-        logger.info("Step 1: Fetching 1-minute data...")
+        logger.info("Step 1: Fetching 5-minute data...")
 
         for i, code in enumerate(codes, 1):
             logger.info(f"[{i}/{len(codes)}] Processing {code}...")
@@ -85,9 +84,9 @@ def init_data(codes: list[str], days: int = 90, skip_1min: bool = False) -> dict
                     stats["1min_success"] += 1
                     stats["1min_bars"] += bars
                 else:
-                    logger.warning(f"No 1min data fetched for {code}")
+                    logger.warning(f"No 5min data fetched for {code}")
             except Exception as e:
-                logger.error(f"Failed to fetch 1min data for {code}: {e}")
+                logger.error(f"Failed to fetch 5min data for {code}: {e}")
 
         logger.info(
             f"Step 1 completed: {stats['1min_success']}/{len(codes)} codes, "
@@ -120,7 +119,7 @@ def main():
         help=f"ETF池大小，默认{len(ETF_POOL)}",
     )
     parser.add_argument(
-        "--skip-1min", action="store_true", help="跳过1分钟数据获取（假设已有数据）"
+        "--skip-1min", action="store_true", help="跳过5分钟数据获取（假设已有数据）"
     )
 
     args = parser.parse_args()
@@ -132,7 +131,7 @@ def main():
     print(f"{'=' * 60}")
     print(f"ETF池大小: {len(pool)}")
     print(f"回溯天数: {args.days}")
-    print(f"跳过1分钟数据: {args.skip_1min}")
+    print(f"跳过5分钟数据: {args.skip_1min}")
     print(f"{'=' * 60}\n")
 
     stats = init_data(pool, days=args.days, skip_1min=args.skip_1min)
@@ -141,7 +140,7 @@ def main():
     print(f"初始化完成！")
     print(f"{'=' * 60}")
     print(f"总代码数: {stats['total_codes']}")
-    print(f"1分钟数据: {stats['1min_success']} 成功, {stats['1min_bars']} 条")
+    print(f"5分钟数据: {stats['1min_success']} 成功, {stats['1min_bars']} 条")
     print(f"15分钟数据: {stats['15min_success']} 成功, {stats['15min_bars']} 条")
     print(f"{'=' * 60}\n")
 

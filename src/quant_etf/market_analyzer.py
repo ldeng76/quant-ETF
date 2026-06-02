@@ -90,7 +90,7 @@ class MarketAnalyzer:
 
     def get_index_1min_bars(self, days: int = 5) -> pd.DataFrame:
         """
-        获取指数1分钟K线数据
+        获取指数5分钟K线数据
         :param days: 获取最近几天
         :return: DataFrame
         """
