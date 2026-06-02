@@ -27,6 +27,14 @@ _running_tasks: dict[str, dict] = {}
 _name_map_cache: dict[str, str] | None = None
 
 
+def _get_pool_codes(strategy_name: str) -> set:
+    """获取策略对应的当前标的池代码集合"""
+    from quant_etf.conf import ETF_POOL
+    if strategy_name == "etf":
+        return set(ETF_POOL)
+    return set()  # 非 ETF 策略不过滤
+
+
 def _get_csv_path(strategy_name: str, bar_interval: str, date_str: str) -> Path:
     """根据周期构造 CSV 路径。日线保持原路径，分钟周期加后缀。"""
     if bar_interval == "1d":
@@ -401,6 +409,9 @@ def get_sell_signals(strategy_name: str = "etf", bar_interval: str = "1d") -> li
     if not summary:
         return []
 
+    # 获取当前标的池，排除主动移除的标的
+    pool_codes = _get_pool_codes(strategy_name)
+
     latest_date = max((d["last_on_date"] for d in summary if d["is_active"]), default=None)
     if not latest_date:
         return []
@@ -408,6 +419,9 @@ def get_sell_signals(strategy_name: str = "etf", bar_interval: str = "1d") -> li
     signals = []
     for item in summary:
         if not item["is_active"] and item["off_date"] == latest_date:
+            # 排除不在池中的标的
+            if pool_codes and item["code"] not in pool_codes:
+                continue
             signals.append({
                 "code": item["code"],
                 "name": item["name"],
@@ -501,6 +515,9 @@ def get_history_summary(
     # 计算汇总指标
     latest_date = all_date_dirs[-1].name
 
+    # 获取当前标的池，用于过滤主动移除的标的
+    pool_codes = _get_pool_codes(strategy_name)
+
     def _compute_off_date(last_on: str, all_dates: list) -> str:
         for d in all_dates:
             if d > last_on:
@@ -511,6 +528,10 @@ def get_history_summary(
     date_strs = [d.name for d in all_date_dirs]
 
     for code, dates in code_dates.items():
+        # 排除不在当前池中的标的（主动从池中移除的，不算掉榜也不算在榜）
+        if pool_codes and code not in pool_codes:
+            continue
+
         sorted_dates = sorted(dates)
         last_on_date = sorted_dates[-1]
         on_days = len(dates)
@@ -530,6 +551,30 @@ def get_history_summary(
             "first_on_date": sorted_dates[0],
             "is_active": is_active,
         })
+
+    # 补充：当前池中的标的如果不在最新 CSV 中，标记为已掉榜
+    if pool_codes and latest_date:
+        latest_csv_codes = set()
+        latest_csv_path = _get_csv_path(strategy_name, bar_interval, latest_date)
+        if latest_csv_path.exists():
+            try:
+                df = pd.read_csv(latest_csv_path, dtype={"code": str})
+                latest_csv_codes = set(df["code"].dropna().str.strip().tolist())
+            except Exception:
+                pass
+        existing_codes = {r["code"] for r in results}
+        for code in pool_codes:
+            if code not in existing_codes and code not in latest_csv_codes:
+                # 该标的在池中，但不在最新结果中，且未被历史记录覆盖 → 标记掉榜
+                results.append({
+                    "code": code,
+                    "name": code_names.get(code, ""),
+                    "last_on_date": "-",
+                    "off_date": latest_date,
+                    "on_days": 0,
+                    "first_on_date": "-",
+                    "is_active": False,
+                })
 
     # 排序：在榜天数降序，最晚上榜日期降序
     results.sort(key=lambda x: (-x["on_days"], x["last_on_date"]))
@@ -598,6 +643,7 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
         "label": label,
         "dates": dates,
         "values": cum_ret,
+        "prices": prices,
     }
 def _persist_run_results(run_id: str, strategy: str, bar_interval: str,
                         status: str, result: list[dict] | None = None,

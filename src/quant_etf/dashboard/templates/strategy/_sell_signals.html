@@ -19,8 +19,8 @@
                 <tr>
                     <td><code>{{ s.code }}</code></td>
                     <td>{{ s.name }}</td>
-                    <td>{{ s.last_on_date }}</td>
-                    <td>{{ s.on_days }} 天</td>
+                    <td>{{ s.last_on_date or '-' }}</td>
+                    <td>{{ s.on_days or '-' }}{% if s.on_days %} 天{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

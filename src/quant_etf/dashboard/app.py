@@ -73,8 +73,35 @@ app.include_router(market.router, prefix="/api/market")
 app.include_router(watchlist.router, prefix="/api/watchlist")
 
 
+# ---- 关闭期 CancelledError 静默中间件 ----
+# uvicorn timeout_graceful_shutdown 到期后会 cancel SSE 等长连接任务，
+# CancelledError 从 Starlette StreamingResponse.listen_for_disconnect 传播上来
+# 会被 uvicorn 记录为 "Exception in ASGI application"，非常难看。
+# 此中间件在最外层拦截该异常，使其不产生错误日志。
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+
+class _SuppressCancelMiddleware:
+    """ASGI middleware: 静默关闭期间的 CancelledError"""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except asyncio.CancelledError:
+            pass  # 优雅关闭期间的正常行为，无需记录
+
+
+app.add_middleware(_SuppressCancelMiddleware)  # type: ignore[arg-type]
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
+    # 关闭期间的 CancelledError 不记录为错误
+    if isinstance(exc, asyncio.CancelledError):
+        return Response(status_code=204)
     logger.error(f"Unhandled exception: {exc}")
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
