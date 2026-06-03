@@ -79,6 +79,7 @@
 **时效判断逻辑**：
 
 - `latest_collect_time` = `SELECT MAX(time) FROM minute_bars`（K线时间戳，近似等于最新采集完成时间）
+  - 注：`time` 是 K线时间窗口标记（如 14:55 表示 14:50~14:55 的K线），与实际采集时刻相差约 5 秒（`COLLECT_OFFSET_SECONDS`），可忽略
 - `is_stale` = `finished_at < latest_collect_time`（结果生成时间早于最新数据 → 过期）
 
 **SQL 查询**：
@@ -95,8 +96,10 @@ WHERE bar_interval = %s
   AND strategy = ANY(%s)
 ORDER BY strategy, finished_at DESC;
 
--- 3. 根据 run_id 查结果明细
-SELECT * FROM strategy_run_results WHERE run_id = %s ORDER BY p60 DESC;
+-- 3. 根据 run_id 查结果明细（p60 为 VARCHAR，需 cast 为数值排序）
+SELECT * FROM strategy_run_results
+WHERE run_id = %s
+ORDER BY p60::FLOAT DESC NULLS LAST;
 ```
 
 ### 2. 后端：路由实现位置
@@ -175,6 +178,24 @@ drilldown 功能保留：点击 p5/p10/p20/p60 单元格仍可弹出 ECharts 折
 - 不修改 `strategy_runner.py` 的执行逻辑
 - 不修改定时调度逻辑（`scheduler.py`）
 - 不修改采集服务（`minute_collector_service.py`）
+
+### 6. DB 存储字段局限
+
+`strategy_run_results` 表仅持久化了以下字段：`code, name, p60, p20, p10, p5, target_weight, interval_, date_`。
+
+以下字段**未持久化**，自动加载结果表格中**不会显示**：
+
+| 缺失字段 | 影响策略 | 说明 |
+|----------|----------|------|
+| `score` | 所有策略 | 综合评分 |
+| `volume_ratio_1d_20d` | short | 成交量比率 |
+| `trend_ok` | short | 趋势达标 |
+| `drawdown_from_120d_high` | mid | 距120日高点回撤 |
+| `bounce_from_20d_low` | mid | 距20日低点反弹 |
+| `stabilization_ok` | mid | 企稳达标 |
+| `rebound_ok` | mid | 反弹达标 |
+
+手动执行策略后（通过内存 `_running_tasks` 渲染 `_results.html`）仍可显示完整字段。`_last_result.html` 仅渲染 DB 已存储的列。
 
 ## 数据流全景
 
