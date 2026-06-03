@@ -1,3 +1,6 @@
+import socket
+from contextlib import contextmanager
+
 import pandas as pd
 from pathlib import Path
 from loguru import logger
@@ -10,6 +13,20 @@ from quant_etf.conf import TDX_VIPDOC_DIR
 
 import psutil
 import subprocess as _subprocess
+
+# pytdx socket 超时保护（秒）
+TDX_SOCKET_TIMEOUT = 15
+
+
+@contextmanager
+def _tdx_timeout(timeout: float = TDX_SOCKET_TIMEOUT):
+    """临时设置 socket 超时，防止 pytdx 网络操作无限阻塞"""
+    old = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(old)
 
 CUSTOM_HQ_HOSTS = [
     ("扩展行情(测试文件)", "112.74.214.43", 7727),
@@ -95,43 +112,47 @@ def _try_connect_and_fetch(
     :return: DataFrame 如果成功，None 如果失败
     """
     try:
-        api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
-        if not api.connect(server, port):
-            logger.debug(f"Failed to connect to TDX server {server}:{port}")
-            return None
-
-        try:
-            # 获取日线数据，category=9 表示日线
-            bars = api.get_security_bars(9, market, code, start, count)
-            if bars:
-                df = api.to_df(bars)
-
-                # 转换为与 parse_tdx_day_file 相同的格式
-                if "datetime" in df.columns:
-                    df.rename(columns={"datetime": "date"}, inplace=True)
-                df["date"] = pd.to_datetime(df["date"])
-                df.set_index("date", inplace=True)
-                df.sort_index(inplace=True)
-
-                # 只保留需要的列，与 parse_tdx_day_file 保持一致
-                # API 返回的是 vol 而不是 volume
-                if "vol" in df.columns and "volume" not in df.columns:
-                    df.rename(columns={"vol": "volume"}, inplace=True)
-                df = df[["open", "high", "low", "close", "amount", "volume"]]
-
-                # 计算涨跌幅
-                df["pct_chg"] = df["close"].pct_change() * 100
-                df["pct_chg"] = df["pct_chg"].fillna(0.0)
-
-                logger.info(f"Successfully fetched data for {code} from {server}:{port}")
-                return df
-            else:
-                logger.debug(f"No bars returned from server {server}:{port}")
+        with _tdx_timeout():
+            api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+            if not api.connect(server, port):
+                logger.debug(f"Failed to connect to TDX server {server}:{port}")
                 return None
 
-        finally:
-            api.disconnect()
+            try:
+                # 获取日线数据，category=9 表示日线
+                bars = api.get_security_bars(9, market, code, start, count)
+                if bars:
+                    df = api.to_df(bars)
 
+                    # 转换为与 parse_tdx_day_file 相同的格式
+                    if "datetime" in df.columns:
+                        df.rename(columns={"datetime": "date"}, inplace=True)
+                    df["date"] = pd.to_datetime(df["date"])
+                    df.set_index("date", inplace=True)
+                    df.sort_index(inplace=True)
+
+                    # 只保留需要的列，与 parse_tdx_day_file 保持一致
+                    # API 返回的是 vol 而不是 volume
+                    if "vol" in df.columns and "volume" not in df.columns:
+                        df.rename(columns={"vol": "volume"}, inplace=True)
+                    df = df[["open", "high", "low", "close", "amount", "volume"]]
+
+                    # 计算涨跌幅
+                    df["pct_chg"] = df["close"].pct_change() * 100
+                    df["pct_chg"] = df["pct_chg"].fillna(0.0)
+
+                    logger.info(f"Successfully fetched data for {code} from {server}:{port}")
+                    return df
+                else:
+                    logger.debug(f"No bars returned from server {server}:{port}")
+                    return None
+
+            finally:
+                api.disconnect()
+
+    except socket.timeout:
+        logger.warning(f"Socket timeout connecting to {server}:{port} ({TDX_SOCKET_TIMEOUT}s)")
+        return None
     except Exception as e:
         logger.debug(f"Failed to get data from {server}:{port}: {e}")
         return None
@@ -259,23 +280,24 @@ def _try_realtime_quote(
     尝试连接指定服务器获取实时行情
     :return: DataFrame 包含实时行情数据
     """
-    api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
-    if not api.connect(server, port):
-        logger.debug(f"Failed to connect to TDX HQ server {server}:{port}")
-        return pd.DataFrame()
-
-    try:
-        quotes = api.get_security_quotes(market_codes)
-        if not quotes:
-            logger.debug(f"No quotes returned from server {server}:{port}")
+    with _tdx_timeout():
+        api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+        if not api.connect(server, port):
+            logger.debug(f"Failed to connect to TDX HQ server {server}:{port}")
             return pd.DataFrame()
 
-        df = api.to_df(quotes)
-        logger.info(f"Successfully fetched realtime quotes for {len(market_codes)} codes from {server}:{port}")
-        return df
+        try:
+            quotes = api.get_security_quotes(market_codes)
+            if not quotes:
+                logger.debug(f"No quotes returned from server {server}:{port}")
+                return pd.DataFrame()
 
-    finally:
-        api.disconnect()
+            df = api.to_df(quotes)
+            logger.info(f"Successfully fetched realtime quotes for {len(market_codes)} codes from {server}:{port}")
+            return df
+
+        finally:
+            api.disconnect()
 
 
 def get_realtime_quote_single(
@@ -391,42 +413,46 @@ def get_security_bars(
 
     # 如果指定了服务器，只尝试该服务器
     try:
-        api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
-        if not api.connect(server, port):
-            logger.warning(f"Failed to connect to TDX HQ server {server}:{port}")
-            return pd.DataFrame()
-
-        try:
-            # 获取日线数据，category=9 表示日线
-            bars = api.get_security_bars(9, market, code, start, count)
-            if not bars:
-                logger.warning(f"No bars returned from server for {code}")
+        with _tdx_timeout():
+            api = TdxHq_API(auto_retry=auto_retry, heartbeat=heartbeat)
+            if not api.connect(server, port):
+                logger.warning(f"Failed to connect to TDX HQ server {server}:{port}")
                 return pd.DataFrame()
 
-            df = api.to_df(bars)
+            try:
+                # 获取日线数据，category=9 表示日线
+                bars = api.get_security_bars(9, market, code, start, count)
+                if not bars:
+                    logger.warning(f"No bars returned from server for {code}")
+                    return pd.DataFrame()
 
-            # 转换为与 parse_tdx_day_file 相同的格式
-            if "datetime" in df.columns:
-                df.rename(columns={"datetime": "date"}, inplace=True)
-            df["date"] = pd.to_datetime(df["date"])
-            df.set_index("date", inplace=True)
-            df.sort_index(inplace=True)
+                df = api.to_df(bars)
 
-            # 只保留需要的列，与 parse_tdx_day_file 保持一致
-            # API 返回的是 vol 而不是 volume
-            if "vol" in df.columns and "volume" not in df.columns:
-                df.rename(columns={"vol": "volume"}, inplace=True)
-            df = df[["open", "high", "low", "close", "amount", "volume"]]
+                # 转换为与 parse_tdx_day_file 相同的格式
+                if "datetime" in df.columns:
+                    df.rename(columns={"datetime": "date"}, inplace=True)
+                df["date"] = pd.to_datetime(df["date"])
+                df.set_index("date", inplace=True)
+                df.sort_index(inplace=True)
 
-            # 计算涨跌幅
-            df["pct_chg"] = df["close"].pct_change() * 100
-            df["pct_chg"] = df["pct_chg"].fillna(0.0)
+                # 只保留需要的列，与 parse_tdx_day_file 保持一致
+                # API 返回的是 vol 而不是 volume
+                if "vol" in df.columns and "volume" not in df.columns:
+                    df.rename(columns={"vol": "volume"}, inplace=True)
+                df = df[["open", "high", "low", "close", "amount", "volume"]]
 
-            return df
+                # 计算涨跌幅
+                df["pct_chg"] = df["close"].pct_change() * 100
+                df["pct_chg"] = df["pct_chg"].fillna(0.0)
 
-        finally:
-            api.disconnect()
+                return df
 
+            finally:
+                api.disconnect()
+
+    except socket.timeout:
+        logger.warning(f"Socket timeout fetching bars for {code} from {server}:{port} ({TDX_SOCKET_TIMEOUT}s)")
+        return pd.DataFrame()
     except Exception as e:
         logger.error(f"Failed to get security bars for {code}: {e}")
         return pd.DataFrame()
@@ -486,17 +512,21 @@ def get_xdxr_info(code: str) -> pd.DataFrame:
     if cached and cached not in _failed_servers:
         server, port = cached
         try:
-            api = TdxHq_API()
-            if api.connect(server, port):
-                try:
-                    xdxr_data = api.get_xdxr_info(market, code)
-                    if xdxr_data:
-                        df = api.to_df(xdxr_data)
-                        logger.info(f"Successfully fetched xdxr info for {code} from cached server")
-                        _xdxr_cache[code] = df
-                        return df
-                finally:
-                    api.disconnect()
+            with _tdx_timeout():
+                api = TdxHq_API()
+                if api.connect(server, port):
+                    try:
+                        xdxr_data = api.get_xdxr_info(market, code)
+                        if xdxr_data:
+                            df = api.to_df(xdxr_data)
+                            logger.info(f"Successfully fetched xdxr info for {code} from cached server")
+                            _xdxr_cache[code] = df
+                            return df
+                    finally:
+                        api.disconnect()
+        except socket.timeout:
+            logger.debug(f"Socket timeout fetching xdxr for {code} from cached server ({TDX_SOCKET_TIMEOUT}s)")
+            _failed_servers.add(cached)
         except Exception as e:
             logger.debug(f"Failed to fetch xdxr from cached server: {e}")
             _failed_servers.add(cached)
@@ -517,27 +547,31 @@ def get_xdxr_info(code: str) -> pd.DataFrame:
             continue
         
         try:
-            api = TdxHq_API()
-            # 设置连接超时为2秒，避免长时间等待
-            if api.connect(server, port, time_out=2.0):
-                try:
-                    xdxr_data = api.get_xdxr_info(market, code)
-                    if xdxr_data:
-                        df = api.to_df(xdxr_data)
-                        logger.info(f"Successfully fetched xdxr info for {code} from {server}:{port}")
-                        _set_cached_server(server, port)
-                        _xdxr_cache[code] = df
-                        return df
-                    else:
-                        # 服务器连接成功但无数据
-                        _xdxr_cache[code] = pd.DataFrame()
-                        return pd.DataFrame()
-                finally:
-                    api.disconnect()
-            else:
-                # 连接失败，记录到失败集合
-                _failed_servers.add(server_key)
-                logger.debug(f"Failed to connect to {server}:{port}")
+            with _tdx_timeout():
+                api = TdxHq_API()
+                # 设置连接超时为2秒，避免长时间等待
+                if api.connect(server, port, time_out=2.0):
+                    try:
+                        xdxr_data = api.get_xdxr_info(market, code)
+                        if xdxr_data:
+                            df = api.to_df(xdxr_data)
+                            logger.info(f"Successfully fetched xdxr info for {code} from {server}:{port}")
+                            _set_cached_server(server, port)
+                            _xdxr_cache[code] = df
+                            return df
+                        else:
+                            # 服务器连接成功但无数据
+                            _xdxr_cache[code] = pd.DataFrame()
+                            return pd.DataFrame()
+                    finally:
+                        api.disconnect()
+                else:
+                    # 连接失败，记录到失败集合
+                    _failed_servers.add(server_key)
+                    logger.debug(f"Failed to connect to {server}:{port}")
+        except socket.timeout:
+            logger.debug(f"Socket timeout fetching xdxr for {code} from {server}:{port} ({TDX_SOCKET_TIMEOUT}s)")
+            _failed_servers.add(server_key)
         except Exception as e:
             logger.debug(f"Failed to fetch xdxr from {server}:{port}: {e}")
             _failed_servers.add(server_key)

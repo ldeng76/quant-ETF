@@ -14,7 +14,7 @@ from pytdx.hq import TdxHq_API
 from pytdx.params import TDXParams
 from pytdx.config.hosts import hq_hosts
 
-from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server
+from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server, _tdx_timeout, TDX_SOCKET_TIMEOUT
 from quant_etf.conf import DATA_DIR
 import time as time_module
 import psutil
@@ -179,11 +179,12 @@ def get_minute_bars(
         if discovered:
             server, port = discovered
             try:
-                if api.connect(server, port):
-                    time_module.sleep(0.5)
-                    data = _fetch_bars_paginated(api, market, code, count)
-                    api.disconnect()
-                    return data
+                with _tdx_timeout():
+                    if api.connect(server, port):
+                        time_module.sleep(0.5)
+                        data = _fetch_bars_paginated(api, market, code, count)
+                        api.disconnect()
+                        return data
             except Exception as e:
                 logger.warning(f"Local TDX server failed: {e!r}")
 
@@ -192,11 +193,12 @@ def get_minute_bars(
             try:
                 host_ip = host_info[1]
                 host_port = host_info[2]
-                if api.connect(host_ip, host_port):
-                    time_module.sleep(0.5)
-                    data = _fetch_bars_paginated(api, market, code, count)
-                    api.disconnect()
-                    return data
+                with _tdx_timeout():
+                    if api.connect(host_ip, host_port):
+                        time_module.sleep(0.5)
+                        data = _fetch_bars_paginated(api, market, code, count)
+                        api.disconnect()
+                        return data
             except Exception as e:
                 logger.debug(f"Trying {host_info[1]}:{host_info[2]} failed: {e}")
                 continue
@@ -205,11 +207,12 @@ def get_minute_bars(
 
     # 使用指定的服务器
     try:
-        if api.connect(server, port):
-            time_module.sleep(0.5)
-            data = _fetch_bars_paginated(api, market, code, count)
-            api.disconnect()
-            return data
+        with _tdx_timeout():
+            if api.connect(server, port):
+                time_module.sleep(0.5)
+                data = _fetch_bars_paginated(api, market, code, count)
+                api.disconnect()
+                return data
     except Exception as e:
         logger.error(f"Failed to get minute bars for {code}: {e}")
 
