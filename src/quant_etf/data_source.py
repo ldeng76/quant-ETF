@@ -220,15 +220,13 @@ class ETFDataSource:
         result: Dict[str, pd.DataFrame] = {}
         need_online = []
 
-        # 1. 尝试从本地 TDX 文件加载（不调用 intraday，最后统一批量处理）
+        # 1. 尝试从本地 TDX 文件加载（不调用 qfq，后续统一批量处理）
         for code in codes:
             tdx_path = get_tdx_path(code)
             if tdx_path and tdx_path.exists():
                 try:
                     df = parse_tdx_day_file(tdx_path)
                     if not df.empty:
-                        if adjust_qfq:
-                            df = self._apply_qfq(code, df)
                         result[code] = df
                 except Exception as e:
                     logger.error(f"Failed to load TDX data for {code}: {e}")

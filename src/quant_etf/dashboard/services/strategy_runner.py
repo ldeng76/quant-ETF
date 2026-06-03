@@ -658,6 +658,7 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
     else:
         raw = slice_df.index.astype(str)
     fmt = "%m-%d %H:%M" if bi.is_daily is False else "%m-%d"
+    raw = raw.tolist() if hasattr(raw, 'tolist') else list(raw)
     dates = pd.to_datetime(raw).strftime(fmt).tolist()
 
     label = bi.unit_label(days)
