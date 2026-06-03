@@ -15,7 +15,7 @@ from quant_etf.dashboard.db import get_pg_conn
 # 所有 K 线周期
 ALL_INTERVALS = ("1d", "60m", "30m", "15m")
 # 所有池子类型
-ALL_POOL_TYPES = ("etf", "stock", "mid_term")
+ALL_POOL_TYPES = ("etf", "stock")
 
 
 # ============================================================

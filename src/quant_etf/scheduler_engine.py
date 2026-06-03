@@ -26,15 +26,13 @@ from quant_etf.tasks import TaskRegistry
 # Module-level constants
 # ============================================================
 
-# Pool type → default codes (public pools, shared by all users)
-# stock / mid_term 留空：Task 会自己从通达信动态读取
+# stock 留空：Task 会自己从通达信动态读取
 PUBLIC_POOLS: Dict[str, List[str]] = {
     "etf": list(ETF_POOL),
     "stock": [],
-    "mid_term": [],
 }
 
-ALL_POOL_TYPES = ("etf", "stock", "mid_term")
+ALL_POOL_TYPES = ("etf", "stock")
 
 
 # ============================================================
@@ -82,7 +80,8 @@ def _score_to_rank_pos(index: int, total: int) -> int:
 
 def run_single_user_strategy(user: dict, interval: str) -> List[dict]:
     """
-    为单个用户在指定 interval 运行所有 3 个策略。
+    为单个用户在指定 interval 运行所有策略。
+
 
     Args:
         user: 用户字典，包含 {"id": int, "name": str, ...}
@@ -97,7 +96,6 @@ def run_single_user_strategy(user: dict, interval: str) -> List[dict]:
     # 1. 获取该用户的私有证券池
     etf_private = get_user_codes(user_id, "etf")
     stock_private = get_user_codes(user_id, "stock")
-    mid_private = get_user_codes(user_id, "mid_term")
 
     # 2. 构建 per-task pool override（仅在有私有池时注入）
     override_pool: Dict[str, List[str]] = {}
@@ -107,11 +105,9 @@ def run_single_user_strategy(user: dict, interval: str) -> List[dict]:
     if stock_private:
         # 有私有池时：动态公共池 + 私有池
         override_pool["stock"] = list(dict.fromkeys(get_stock_pool("stock") + stock_private))
-    if mid_private:
-        override_pool["mid_term"] = list(dict.fromkeys(get_stock_pool("mid_term") + mid_private))
 
     rankings: List[dict] = []
-    task_names = ["etf", "short", "mid"]
+    task_names = ["etf", "short"]
 
     for task_name in task_names:
         task = TaskRegistry.get_task(task_name, bar_interval=interval)
@@ -161,20 +157,6 @@ def run_single_user_strategy(user: dict, interval: str) -> List[dict]:
                     "score": result.score,
                     "rank_pos": rank_pos_1based,
                     "p60": result.p60,
-                    "p20": result.p20,
-                    "p10": result.p10,
-                    "p5": result.p5,
-                    "volume_ratio": result.volume_ratio_1d_20d,
-                    "trend_ok": result.trend_ok,
-                })
-            elif task_name == "mid":
-                rankings.append({
-                    "user_id": user_id,
-                    "interval_": interval,
-                    "task_type": "mid_term",
-                    "code": result.code,
-                    "score": result.score,
-                    "rank_pos": rank_pos_1based,
                     "p20": result.p20,
                     "p10": result.p10,
                     "p5": result.p5,

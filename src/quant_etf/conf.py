@@ -111,8 +111,8 @@ TDX_CUSTOM_BLOCK_NAME = "高分etf"
 # - stock:    短线股票池（ShortTermStockTask 使用）
 # - mid_term: 中期反弹池（MidTermReboundTask 使用）
 TDX_STOCK_BLOCKS = {
-    # "stock": "TDXRG",
-    "mid_term": "ZLSCSH", 
+    "stock": "TDXRG",
+    # "mid_term": "ZLSCSH",  # 暂不使用，日后可能恢复
 }
 
 # 策略权重配置 (可在此处调整)
