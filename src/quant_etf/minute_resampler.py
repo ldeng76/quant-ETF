@@ -158,12 +158,36 @@ FROM grouped
 ORDER BY code, time
 """
 
+# 日线聚合 SQL：按交易日聚合全天 5 分钟 K 线（不拆 AM/PM session）
+_DAILY_AGG_SQL = """
+SELECT
+    code,
+    MAX(time) AS time,
+    FIRST(open ORDER BY time) AS open,
+    MAX(high) AS high,
+    MIN(low) AS low,
+    LAST(close ORDER BY time) AS close,
+    SUM(volume) AS volume,
+    SUM(amount) AS amount
+FROM minute_bars_5m
+GROUP BY code, DATE(time)
+ORDER BY code, DATE(time)
+"""
+
 
 def _do_aggregate(df_5m: pd.DataFrame, bars_to_group: int) -> pd.DataFrame:
-    """在 DuckDB 中执行聚合"""
+    """在 DuckDB 中执行分钟周期聚合（含 AM/PM session 拆分）"""
     conn = _get_duck_conn()
     conn.register("minute_bars_5m", df_5m)
     result = conn.execute(_AGG_SQL.format(bars_to_group=bars_to_group)).df()
+    return result
+
+
+def _do_aggregate_daily(df_5m: pd.DataFrame) -> pd.DataFrame:
+    """在 DuckDB 中执行日线聚合（全天 48 根 5min K 线 → 1 根日线）"""
+    conn = _get_duck_conn()
+    conn.register("minute_bars_5m", df_5m)
+    result = conn.execute(_DAILY_AGG_SQL).df()
     return result
 
 
@@ -174,15 +198,24 @@ def resample_bars(
 ) -> pd.DataFrame:
     """
     从5分钟K线重采样为目标周期K线（DuckDB 引擎）
-    正确处理 A 股交易时段边界
+    正确处理 A 股交易时段边界，支持日线及所有分钟周期。
 
     :param code: 标的代码
-    :param interval: BarInterval 周期配置（不能是日线）
+    :param interval: BarInterval 周期配置
     :param count: 需要的 bar 数量
     :return: DataFrame，列为 time/open/high/low/close/volume/amount
     """
     if interval.is_daily:
-        raise ValueError("resample_bars does not support daily interval")
+        # 日线：将每天 48 根 5 分钟 K 线聚合为 1 根日线
+        df_5m = _fetch_5m_single(code, count, BARS_PER_DAY)
+        if df_5m.empty:
+            return pd.DataFrame()
+        df_5m["code"] = code
+        result = _do_aggregate_daily(df_5m)
+        if result.empty:
+            return pd.DataFrame()
+        result = result.drop(columns=["code"])
+        return result.tail(count).reset_index(drop=True)
 
     minutes_per_bar = 240 // interval.bars_per_day
     bars_to_group = minutes_per_bar // BASE_BAR_MINUTES  # 每组多少根5分钟K线
@@ -224,7 +257,17 @@ def resample_bars_batch(
     :return: {code: DataFrame}
     """
     if interval.is_daily:
-        raise ValueError("resample_bars_batch does not support daily interval")
+        df_5m = _fetch_5m_batch(codes, start_time)
+        if df_5m.empty:
+            return {c: pd.DataFrame() for c in codes}
+        result = _do_aggregate_daily(df_5m)
+        if result.empty:
+            return {c: pd.DataFrame() for c in codes}
+        out: dict[str, pd.DataFrame] = {}
+        for code in codes:
+            sub = result[result["code"] == code].drop(columns=["code"]).reset_index(drop=True)
+            out[code] = sub
+        return out
 
     minutes_per_bar = 240 // interval.bars_per_day
     bars_to_group = minutes_per_bar // BASE_BAR_MINUTES  # 每组多少根5分钟K线

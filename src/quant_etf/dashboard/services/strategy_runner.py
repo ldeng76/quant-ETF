@@ -592,7 +592,7 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
     :return: {code, field, label, dates, values}
     """
     if run_id not in _running_tasks:
-        # 降级：内存丢失（dashboard 重启过），从数据库 + TDX 重建数据
+        # 降级：内存丢失（dashboard 重启过），从 PG minute_bars 重建数据
         rows = query("""
             SELECT strategy, bar_interval, finished_at
             FROM strategy_runs
@@ -600,19 +600,23 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
         """, [run_id])
         if not rows:
             raise ValueError(f"Run {run_id} not found or not complete")
-        strategy_name = rows[0]["strategy"]
         bar_interval = rows[0].get("bar_interval", "1d")
-        finished_at = rows[0].get("finished_at")
-        date_str = str(finished_at.date()) if finished_at else datetime.now().strftime("%Y-%m-%d")
 
-        # 从 TDX 本地文件加载 K 线
-        from quant_etf.tdx import get_security_bars, adjust_price_qfq
-        df_bars = get_security_bars(code=code, category=0, is_stock=False)
-        if df_bars is None or df_bars.empty:
-            raise ValueError(f"No TDX data for {code}")
-        df_bars = adjust_price_qfq(df_bars, code)
+        # 从 minute_bars 重采样重建 K 线数据
+        from quant_etf.bar_interval import get_interval, bars_for_days
+        from quant_etf.minute_resampler import resample_bars
+        bi = get_interval(bar_interval)
+        day_map_peek = {"p60": 60, "p20": 20, "p10": 10, "p5": 5}
+        n_bars_needed = day_map_peek.get(field, 60) + 1
+        if not bi.is_daily:
+            n_bars_needed = bars_for_days(n_bars_needed, bi)
+        df_bars = resample_bars(code, bi, count=n_bars_needed)
+        if df_bars.empty:
+            raise ValueError(f"No minute_bars data for {code}")
+        # 统一列名，下游逻辑依赖 "date" 或 index
+        if "time" in df_bars.columns and "date" not in df_bars.columns:
+            df_bars["date"] = df_bars["time"]
         _loaded_data = {code: df_bars}
-        task = None
     else:
         task_info = _running_tasks[run_id]
         if task_info.get("status") != "complete":
