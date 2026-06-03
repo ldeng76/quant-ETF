@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}策略执行 - 量化ETF看板{% endblock %}
 {% block content %}
-<div class="py-3" x-data="{ runIds: [], polling: false, barInterval: '1d' }">
+<div class="py-3" x-data="strategyPage()">
     <h4><i class="bi bi-bar-chart"></i> 策略执行</h4>
     <hr>
 
@@ -10,7 +10,8 @@
             <h5 class="card-title">选择策略</h5>
             <div class="mb-2 d-flex align-items-center gap-2">
                 <label class="form-label mb-0 small">K线周期:</label>
-                <select class="form-select form-select-sm" style="width:auto" x-model="barInterval" id="bar-interval">
+                <select class="form-select form-select-sm" style="width:auto" x-model="barInterval" id="bar-interval"
+                        @change="loadLastResult()">
                     <option value="1d" selected>日线</option>
                     <option value="60m">60分钟</option>
                     <option value="30m">30分钟</option>
@@ -24,68 +25,394 @@
                 <div class="spinner-border spinner-border-sm"></div> 加载策略列表...
             </div>
             <button class="btn btn-primary mt-2" id="run-strategy-btn"
-                    x-on:click="
-                        const checked = document.querySelectorAll('input[name=strategies]:checked');
-                        const strategies = Array.from(checked).map(c => c.value);
-                        if (strategies.length === 0) { alert('请至少选择一个策略'); return; }
-                        $el.disabled = true;
-                        $el.innerHTML = '<span class=&quot;spinner-border spinner-border-sm&quot;></span> 执行中...';
-                        fetch('/api/strategy/run', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({strategies: strategies, bar_interval: barInterval})
-                        })
-                        .then(r => r.json())
-                        .then(data => {
-                            if (data.run_ids && data.run_ids.length > 0) {
-                                htmx.ajax('GET', '/api/strategy/results/' + data.run_ids[0], {target: '#strategy-result'});
-                            }
-                        })
-                        .catch(err => {
-                            document.getElementById('strategy-result').innerHTML = '<div class=&quot;alert alert-danger&quot;>执行失败: ' + err + '</div>';
-                        })
-                        .finally(() => {
-                            $el.disabled = false;
-                            $el.innerHTML = '<i class=&quot;bi bi-play-fill&quot;></i> 执行选中策略';
-                        });
-                    ">
+                    x-on:click="runStrategies()">
                 <i class="bi bi-play-fill"></i> 执行选中策略
             </button>
         </div>
     </div>
+
+    {# 结果区域：Tab + 时效 + 表格 #}
     <div id="strategy-result">
-        <div class="text-muted small">选择策略后执行查看结果</div>
+        <div class="text-muted small">选择策略后自动显示上次结果，或手动执行查看最新结果</div>
     </div>
 </div>
 
 <script>
-    // 加载策略列表
-    (function() {
-        fetch('/api/strategy/strategies')
-            .then(r => r.json())
-            .then(strategies => {
-                const html = strategies.map(s => `
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="strategies" value="${s.name}" id="s-${s.name}">
-                        <label class="form-check-label" for="s-${s.name}">
-                            ${s.name} <small class="text-muted">${s.description}</small>
-                        </label>
-                    </div>
-                `).join('');
-                document.getElementById('strategy-list').innerHTML = html;
-            });
-    })();
-    // SSE 监听：scheduler 执行完成后自动加载结果
-    (function() {
-        const evtSource = new EventSource('/events');
-        evtSource.onmessage = function(event) {
+const INTERVAL_LABELS = {'1d': '日线', '5m': '5分钟', '15m': '15分钟', '30m': '30分钟', '60m': '60分钟'};
+const COL_LABELS = {
+    '1d':  {p60: '60日涨幅', p20: '20日涨幅', p10: '10日涨幅', p5: '5日涨幅'},
+    '5m':  {p60: '300分涨幅', p20: '100分涨幅', p10: '50分涨幅', p5: '25分涨幅'},
+    '15m': {p60: '60小时涨幅', p20: '20小时涨幅', p10: '10小时涨幅', p5: '5小时涨幅'},
+    '30m': {p60: '120小时涨幅', p20: '40小时涨幅', p10: '20小时涨幅', p5: '10小时涨幅'},
+    '60m': {p60: '240小时涨幅', p20: '80小时涨幅', p10: '40小时涨幅', p5: '20小时涨幅'},
+};
+const COL_MAP = {
+    code: '代码', name: '名称',
+    p60: null, p20: null, p10: null, p5: null,  // dynamic
+    target_weight: '目标权重',
+};
+
+function strategyPage() {
+    return {
+        barInterval: '1d',
+        strategies: [],       // [{name, description, title}]
+        lastResultData: null, // JSON from last-result API
+        activeTab: 0,
+        loading: false,
+        _pollTimer: null,
+        _fastPollTimer: null,
+
+        init() {
+            this.loadStrategies();
+            this._pollTimer = setInterval(() => this.pollResultTimestamps(), 60000);
+        },
+
+        destroy() {
+            if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+            if (this._fastPollTimer) { clearInterval(this._fastPollTimer); this._fastPollTimer = null; }
+        },
+
+        async loadStrategies() {
             try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'strategy_result' && data.run_id) {
-                    htmx.ajax('GET', '/api/strategy/results/' + data.run_id, {target: '#strategy-result'});
+                const r = await fetch('/api/strategy/strategies');
+                this.strategies = await r.json();
+                this.renderStrategyList();
+                // 页面加载后自动加载上次结果
+                this.loadLastResult();
+            } catch(e) {
+                document.getElementById('strategy-list').innerHTML = '<span class="text-danger">加载失败</span>';
+            }
+        },
+
+        renderStrategyList() {
+            const html = this.strategies.map(s => `
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="strategies"
+                           value="${s.name}" id="s-${s.name}" checked
+                           @change="$dispatch('strategy-change')">
+                    <label class="form-check-label" for="s-${s.name}">
+                        ${s.title || s.name} <small class="text-muted">${s.description}</small>
+                    </label>
+                </div>
+            `).join('');
+            document.getElementById('strategy-list').innerHTML = html;
+        },
+
+        getCheckedStrategies() {
+            return Array.from(document.querySelectorAll('input[name=strategies]:checked')).map(c => c.value);
+        },
+
+        async loadLastResult() {
+            const checked = this.getCheckedStrategies();
+            if (checked.length === 0) {
+                document.getElementById('strategy-result').innerHTML =
+                    '<div class="text-muted small">请至少选择一个策略</div>';
+                return;
+            }
+            this.loading = true;
+            try {
+                const params = new URLSearchParams({
+                    bar_interval: this.barInterval,
+                    strategies: checked.join(',')
+                });
+                const r = await fetch('/api/strategy/last-result?' + params);
+                this.lastResultData = await r.json();
+                this.activeTab = 0;
+                this.renderResult();
+            } catch(e) {
+                document.getElementById('strategy-result').innerHTML =
+                    '<div class="alert alert-danger">加载上次结果失败: ' + e + '</div>';
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async pollResultTimestamps() {
+            const checked = this.getCheckedStrategies();
+            if (checked.length === 0) return;
+            try {
+                const params = new URLSearchParams({
+                    bar_interval: this.barInterval,
+                    strategies: checked.join(',')
+                });
+                const r = await fetch('/api/strategy/result-timestamps?' + params);
+                const ts = await r.json();
+                // 对比当前显示的各策略 finished_at
+                const current = this.lastResultData;
+                if (!current || !current.results) return;
+                for (const res of current.results) {
+                    const latest = ts[res.strategy];
+                    if (!latest) continue;
+                    if (latest.finished_at !== res.finished_at || latest.run_id !== res.run_id) {
+                        this.loadLastResult();
+                        return;
+                    }
                 }
             } catch(e) {}
-        };
-    })();
+        },
+
+        async runStrategies() {
+            const checked = this.getCheckedStrategies();
+            if (checked.length === 0) { alert('请至少选择一个策略'); return; }
+            const btn = document.getElementById('run-strategy-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 执行中...';
+            // 记录当前基准时间戳
+            const baseline = {};
+            if (this.lastResultData && this.lastResultData.results) {
+                for (const r of this.lastResultData.results) {
+                    baseline[r.strategy] = {finished_at: r.finished_at, run_id: r.run_id};
+                }
+            }
+            try {
+                const r = await fetch('/api/strategy/run', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({strategies: checked, bar_interval: this.barInterval})
+                });
+                const data = await r.json();
+                if (data.run_ids && data.run_ids.length > 0) {
+                    htmx.ajax('GET', '/api/strategy/results/' + data.run_ids[0], {target: '#strategy-result'});
+                }
+                // 启动短轮询：5秒间隔检测结果更新
+                if (this._fastPollTimer) clearInterval(this._fastPollTimer);
+                this._fastPollTimer = setInterval(async () => {
+                    try {
+                        const params = new URLSearchParams({
+                            bar_interval: this.barInterval,
+                            strategies: checked.join(',')
+                        });
+                        const tr = await fetch('/api/strategy/result-timestamps?' + params);
+                        const ts = await tr.json();
+                        for (const s of checked) {
+                            const latest = ts[s];
+                            const base = baseline[s];
+                            if (latest && (!base || latest.finished_at !== base.finished_at || latest.run_id !== base.run_id)) {
+                                clearInterval(this._fastPollTimer);
+                                this._fastPollTimer = null;
+                                this.loadLastResult();
+                                return;
+                            }
+                        }
+                    } catch(e) {}
+                }, 5000);
+                // 安全超时：90秒后停止短轮询
+                setTimeout(() => {
+                    if (this._fastPollTimer) { clearInterval(this._fastPollTimer); this._fastPollTimer = null; }
+                }, 90000);
+            } catch(err) {
+                document.getElementById('strategy-result').innerHTML =
+                    '<div class="alert alert-danger">执行失败: ' + err + '</div>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> 执行选中策略';
+            }
+        },
+
+        renderResult() {
+            const data = this.lastResultData;
+            if (!data || !data.results || data.results.length === 0) {
+                document.getElementById('strategy-result').innerHTML =
+                    '<div class="text-muted small">暂无历史执行结果，请点击"执行选中策略"手动运行</div>';
+                return;
+            }
+
+            const results = data.results;
+            const showTabs = results.length > 1;
+            const active = results[this.activeTab] || results[0];
+            const labels = COL_LABELS[this.barInterval] || COL_LABELS['1d'];
+
+            let html = '';
+
+            // Tab 栏
+            if (showTabs) {
+                html += '<ul class="nav nav-tabs mb-2">';
+                results.forEach((r, i) => {
+                    const dot = r.is_stale
+                        ? '<span class="d-inline-block rounded-circle ms-1" style="width:8px;height:8px;background:#dc3545;"></span>'
+                        : '<span class="d-inline-block rounded-circle ms-1" style="width:8px;height:8px;background:#198754;"></span>';
+                    const activeClass = i === this.activeTab ? ' active' : '';
+                    html += `<li class="nav-item">
+                        <a class="nav-link${activeClass}" href="#" @click.prevent="activeTab=${i}; renderResult()">
+                            ${r.title || r.strategy}${dot}
+                        </a>
+                    </li>`;
+                });
+                html += '</ul>';
+            }
+
+            // 时效标注
+            const finishedAt = active.finished_at ? active.finished_at.replace('T', ' ').substring(0, 19) : '未知';
+            const latestCollect = data.latest_collect_time ? data.latest_collect_time.replace('T', ' ').substring(0, 19) : '未知';
+            if (active.is_stale) {
+                html += `<div class="small mb-2 text-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    结果生成时间：${finishedAt}
+                    <span class="badge bg-danger ms-1">已过期</span>
+                    <span class="text-muted ms-1">（最新数据：${latestCollect}）</span>
+                </div>`;
+            } else {
+                html += `<div class="small mb-2 text-success">
+                    <i class="bi bi-check-circle"></i>
+                    结果生成时间：${finishedAt}
+                    <span class="badge bg-success ms-1">已是最新</span>
+                </div>`;
+            }
+
+            // 大盘评估
+            const mr = active.market_regime;
+            if (mr) {
+                const regimeClass = mr.mode === 'aggressive' ? 'alert-success' : 'alert-warning';
+                const modeLabel = mr.mode === 'aggressive' ? '激进' : '保守';
+                const modeBadge = mr.mode === 'aggressive' ? 'bg-success' : 'bg-warning text-dark';
+                let indexHtml = '';
+                if (mr.index_scores) {
+                    const entries = Object.entries(mr.index_scores);
+                    indexHtml = entries.map(([idx, sc], j) => {
+                        const cls = sc > 0 ? 'text-success' : 'text-danger';
+                        const sep = j < entries.length - 1 ? ' | ' : '';
+                        return `${idx}: <span class="${cls}">${sc}%</span>${sep}`;
+                    }).join('');
+                }
+                html += `<div class="alert ${regimeClass} py-2 mb-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>大盘评估</strong>：
+                            综合得分 <strong>${mr.market_score}%</strong>
+                            （阈值 ${mr.median_score}%），
+                            模式 <span class="badge ${modeBadge}">${modeLabel}</span>
+                            ，持仓上限 ${mr.top_n} 只
+                        </div>
+                        <div class="small text-muted">${indexHtml}</div>
+                    </div>
+                </div>`;
+            }
+
+            // 结果表格
+            const items = active.items || [];
+            if (items.length > 0) {
+                const cols = ['code', 'name', 'p60', 'p20', 'p10', 'p5', 'target_weight'];
+                const colHeaders = cols.map(c => {
+                    if (c.startsWith('p')) return labels[c] || c;
+                    return COL_MAP[c] || c;
+                });
+
+                html += '<div class="table-responsive"><table class="table table-sm table-striped"><thead><tr>';
+                colHeaders.forEach(h => { html += `<th>${h}</th>`; });
+                html += '</tr></thead><tbody>';
+
+                items.forEach(row => {
+                    html += '<tr>';
+                    cols.forEach(c => {
+                        const val = row[c];
+                        if (['p5','p10','p20','p60'].includes(c)) {
+                            const display = val != null ? val.toFixed(2) + '%' : '-';
+                            html += `<td class="drilldown-cell" data-code="${row.code}" data-field="${c}" data-run-id="${active.run_id}" data-name="${row.name || ''}" onclick="showDrilldown(this)" title="点击查看明细">${display}</td>`;
+                        } else if (val != null) {
+                            html += `<td>${val}</td>`;
+                        } else {
+                            html += '<td>-</td>';
+                        }
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+            } else {
+                html += '<div class="text-muted">无结果数据</div>';
+            }
+
+            // 卖出信号 + 历史汇总
+            if (active.items && active.items.length > 0) {
+                html += `<div id="sell-signals-container"
+                     hx-get="/api/strategy/sell-signals?strategy=${active.strategy}&bar_interval=${this.barInterval}"
+                     hx-trigger="load"
+                     hx-indicator="#sell-spinner">
+                    <div id="sell-spinner" class="htmx-indicator text-center py-2">
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span class="small text-muted">检测卖出信号...</span>
+                    </div>
+                </div>`;
+                html += `<hr>
+                <div id="history-summary-container"
+                     hx-get="/api/strategy/history-summary?strategy=${active.strategy}&days=30&bar_interval=${this.barInterval}"
+                     hx-trigger="load"
+                     hx-indicator="#history-spinner">
+                    <div id="history-spinner" class="htmx-indicator text-center py-2">
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span class="small text-muted">加载历史汇总...</span>
+                    </div>
+                </div>`;
+            }
+
+            document.getElementById('strategy-result').innerHTML = html;
+        }
+    };
+}
+
+// Drilldown 弹窗（复用 _results.html 的逻辑）
+window.showDrilldown = function(el) {
+    const code = el.dataset.code;
+    const field = el.dataset.field;
+    const runId = el.dataset.runId;
+    const name = el.dataset.name || '';
+
+    fetch('/api/strategy/drilldown/' + runId + '?code=' + code + '&field=' + field)
+        .then(r => r.ok ? r.json() : Promise.reject('Failed to load data'))
+        .then(data => {
+            document.getElementById('drilldownTitle').textContent =
+                data.code + ' ' + name + ' - ' + data.label + ' 累计涨幅';
+
+            const chartEl = document.getElementById('drilldownChart');
+            const modalEl = document.getElementById('drilldownModal');
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+
+            modalEl.addEventListener('shown.bs.modal', function onShown() {
+                modalEl.removeEventListener('shown.bs.modal', onShown);
+                if (window._drilldownChart) window._drilldownChart.dispose();
+                window._drilldownChart = echarts.init(chartEl);
+
+                const pctValues = data.values.map(v => (v * 100).toFixed(2));
+                window._drilldownChart.setOption({
+                    tooltip: {
+                        trigger: 'axis',
+                        formatter: function(params) {
+                            const p = params[0];
+                            return p.name + '<br/>价格: ' + data.prices[p.dataIndex] + '<br/>' + p.seriesName + ': ' + p.value + '%';
+                        }
+                    },
+                    xAxis: { type: 'category', data: data.dates, axisLabel: { rotate: 45 } },
+                    yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+                    series: [{
+                        name: '累计涨幅', type: 'line', data: pctValues,
+                        smooth: true, lineStyle: { width: 2 }, areaStyle: { opacity: 0.1 }
+                    }],
+                    grid: { left: 60, right: 20, top: 20, bottom: 60 },
+                    animationDuration: 500
+                });
+            });
+        })
+        .catch(err => { alert('加载明细数据失败: ' + err); });
+};
 </script>
+
+{# Drilldown modal（全局共享） #}
+<style>
+.drilldown-cell { cursor: pointer; text-decoration: underline dotted; color: #0d6efd; }
+.drilldown-cell:hover { background-color: #e8f0fe; }
+</style>
+<div class="modal fade" id="drilldownModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="drilldownTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="drilldownChart" style="width:100%;height:350px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 {% endblock %}

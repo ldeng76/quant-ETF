@@ -84,16 +84,23 @@ _MIGRATIONS: list[tuple[int, str]] = [
             run_id          VARCHAR(64) NOT NULL,
             code            VARCHAR(16) NOT NULL,
             name            VARCHAR(64),
-            p60             VARCHAR(32),
-            p20             VARCHAR(32),
-            p10             VARCHAR(32),
-            p5              VARCHAR(32),
+            p60             REAL,
+            p20             REAL,
+            p10             REAL,
+            p5              REAL,
             target_weight   REAL,
             interval_       VARCHAR(8),
             date_           VARCHAR(16),
             created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_results_run_id ON strategy_run_results(run_id);
+    """),
+    # Version 12: strategy_run_results 数值列从 VARCHAR 改为 REAL
+    (12, """
+        ALTER TABLE strategy_run_results ALTER COLUMN p60 TYPE REAL USING p60::REAL;
+        ALTER TABLE strategy_run_results ALTER COLUMN p20 TYPE REAL USING p20::REAL;
+        ALTER TABLE strategy_run_results ALTER COLUMN p10 TYPE REAL USING p10::REAL;
+        ALTER TABLE strategy_run_results ALTER COLUMN p5  TYPE REAL USING p5::REAL;
     """),
 ]
 
