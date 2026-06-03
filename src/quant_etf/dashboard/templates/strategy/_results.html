@@ -176,7 +176,7 @@
         const name = el.dataset.name || '';
 
         fetch('/api/strategy/drilldown/' + runId + '?code=' + code + '&field=' + field)
-            .then(r => r.ok ? r.json() : Promise.reject('Failed to load data'))
+            .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject('Drilldown ' + r.status + ': ' + (d.detail || JSON.stringify(d)))))
             .then(data => {
                 document.getElementById('drilldownTitle').textContent =
                     data.code + ' ' + name + ' - ' + data.label + ' 累计涨幅';
