@@ -159,13 +159,15 @@ def main():
     import signal
     import uvicorn
     import os
+    import threading
 
     host = os.environ.get("DASHBOARD_HOST", DASHBOARD_HOST)
     port = int(os.environ.get("DASHBOARD_PORT", DASHBOARD_PORT))
 
     # Windows + uvicorn: Ctrl+C 无法可靠停止服务器
-    # 原因：SSE 长连接导致优雅关闭阶段卡住，第二次 Ctrl+C 的 SystemExit 被 uvicorn 吞掉
-    # 解决：注册 SIGINT handler，第一次 raise SystemExit，第二次 os._exit(0) 强杀
+    # 原因：uvicorn.run(str) 会重新导入模块并覆盖自定义 SIGINT handler，
+    #       且 SSE 长连接导致优雅关闭阶段卡住
+    # 解决：传 app 对象 + 安全定时器兜底强退
     _sigint_count = 0
 
     def _sigint_handler(signum, frame):
@@ -173,6 +175,7 @@ def main():
         _sigint_count += 1
         if _sigint_count == 1:
             print("\n>>> Ctrl+C received, shutting down... (press Ctrl+C again to force quit)", flush=True)
+            _install_safety_timer()
             raise SystemExit(0)
         else:
             print("\n>>> Force quitting...", flush=True)
@@ -180,12 +183,22 @@ def main():
 
     signal.signal(signal.SIGINT, _sigint_handler)
 
+    # 安全定时器：如果 uvicorn graceful shutdown 5 秒内未完成，强制退出
+    def _force_exit_after_timeout():
+        print("\n>>> Graceful shutdown timed out (5s), force quitting...", flush=True)
+        os._exit(1)
+
+    def _install_safety_timer():
+        timer = threading.Timer(5.0, _force_exit_after_timeout)
+        timer.daemon = True
+        timer.start()
+
+    # 传 app 对象（而非字符串），避免 uvicorn 重新导入模块覆盖信号处理器
     uvicorn.run(
-        "quant_etf.dashboard.app:app",
+        app,
         host=host,
         port=port,
         reload=False,
-        factory=False,
         log_level="info",
         timeout_graceful_shutdown=3,  # 3秒后强制关闭所有连接
     )
