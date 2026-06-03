@@ -592,17 +592,38 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
     :return: {code, field, label, dates, values}
     """
     if run_id not in _running_tasks:
-        raise ValueError(f"Run {run_id} not found")
+        # 降级：内存丢失（dashboard 重启过），从数据库 + TDX 重建数据
+        rows = query("""
+            SELECT strategy, bar_interval, finished_at
+            FROM strategy_runs
+            WHERE run_id = %s AND status = 'complete'
+        """, [run_id])
+        if not rows:
+            raise ValueError(f"Run {run_id} not found or not complete")
+        strategy_name = rows[0]["strategy"]
+        bar_interval = rows[0].get("bar_interval", "1d")
+        finished_at = rows[0].get("finished_at")
+        date_str = str(finished_at.date()) if finished_at else datetime.now().strftime("%Y-%m-%d")
 
-    task_info = _running_tasks[run_id]
-    if task_info.get("status") != "complete":
-        raise ValueError(f"Run {run_id} not complete")
+        # 从 TDX 本地文件加载 K 线
+        from quant_etf.tdx import get_security_bars, adjust_price_qfq
+        df_bars = get_security_bars(code=code, category=0, is_stock=False)
+        if df_bars is None or df_bars.empty:
+            raise ValueError(f"No TDX data for {code}")
+        df_bars = adjust_price_qfq(df_bars, code)
+        _loaded_data = {code: df_bars}
+        task = None
+    else:
+        task_info = _running_tasks[run_id]
+        if task_info.get("status") != "complete":
+            raise ValueError(f"Run {run_id} not complete")
+        task = task_info.get("task_ref")
+        bar_interval = task_info.get("bar_interval", "1d")
+        if task is None or not hasattr(task, "_loaded_data") or not task._loaded_data:
+            raise ValueError("Drilldown data not available")
+        _loaded_data = task._loaded_data
 
-    task = task_info.get("task_ref")
-    if task is None or not hasattr(task, "_loaded_data") or not task._loaded_data:
-        raise ValueError("Drilldown data not available")
-
-    if code not in task._loaded_data:
+    if code not in _loaded_data:
         raise ValueError(f"Code {code} not in loaded data")
 
     # p60 -> 60 days, p20 -> 20 days, etc.
@@ -612,10 +633,10 @@ def get_drilldown_data(run_id: str, code: str, field: str) -> dict:
     days = day_map[field]
 
     from quant_etf.bar_interval import get_interval
-    bi = get_interval(task._bar_interval)
+    bi = get_interval(bar_interval)
     n_bars = days
 
-    df = task._loaded_data[code]
+    df = _loaded_data[code]
     if df.empty or len(df) < n_bars + 1:
         # 不足则取全部
         slice_df = df.copy()
