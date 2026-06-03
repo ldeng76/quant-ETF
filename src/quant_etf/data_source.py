@@ -10,7 +10,7 @@ from quant_etf.bar_interval import BarInterval, get_interval
 from quant_etf.conf import DATA_DIR, ETF_POOL
 from quant_etf.tdx import (
     get_tdx_path, parse_tdx_day_file, get_security_bars, get_xdxr_info,
-    adjust_price_qfq, get_realtime_quote_single,
+    adjust_price_qfq, get_realtime_quote_single, get_realtime_quote,
 )
 from quant_etf.trading_day import is_intraday
 from quant_etf.market_db import load_daily_from_db, load_daily_batch_from_db, save_daily_to_db
@@ -211,6 +211,8 @@ class ETFDataSource:
         :param interval: K线周期
         :return: {code: DataFrame} 字典
         """
+        import time as _time
+        _t0 = _time.monotonic()
         bar_interval = get_interval(interval)
         if not bar_interval.is_daily:
             return self._load_minute_data_resampled_batch(codes, bar_interval)
@@ -218,7 +220,7 @@ class ETFDataSource:
         result: Dict[str, pd.DataFrame] = {}
         need_online = []
 
-        # 1. 尝试从本地 TDX 文件加载
+        # 1. 尝试从本地 TDX 文件加载（不调用 intraday，最后统一批量处理）
         for code in codes:
             tdx_path = get_tdx_path(code)
             if tdx_path and tdx_path.exists():
@@ -227,59 +229,69 @@ class ETFDataSource:
                     if not df.empty:
                         if adjust_qfq:
                             df = self._apply_qfq(code, df)
-                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
+                        result[code] = df
                 except Exception as e:
                     logger.error(f"Failed to load TDX data for {code}: {e}")
 
+        _t1 = _time.monotonic()
+        logger.info(f"[batch] TDX local: {len(result)}/{len(codes)} loaded in {_t1 - _t0:.1f}s")
+
         loaded_codes = set(result.keys())
         pg_candidates = [c for c in codes if c not in loaded_codes]
-        if not pg_candidates:
-            return result
+        if pg_candidates:
+            # 2. 批量从 PG 缓存加载
+            try:
+                pg_data = load_daily_batch_from_db("etf_daily", pg_candidates)
+                for code in pg_candidates:
+                    df = pg_data.get(code)
+                    if df is None or df.empty:
+                        need_online.append(code)
+                        continue
 
-        # 2. 批量从 PG 缓存加载
-        try:
-            pg_data = load_daily_batch_from_db("etf_daily", pg_candidates)
-            for code in pg_candidates:
-                df = pg_data.get(code)
-                if df is None or df.empty:
-                    need_online.append(code)
-                    continue
+                    last_date = df.index[-1].date()
+                    is_fresh = self.check_is_fresh(df)
+                    if not check_freshness or is_fresh:
+                        logger.info(f"Loaded ETF data for {code} from PG cache (last: {last_date})")
+                        result[code] = df  # 暂存，后续统一处理前复权
+                    else:
+                        logger.debug(f"ETF {code}: PG cache stale (last: {last_date}), will fetch online")
+                        need_online.append(code)
+            except Exception as e:
+                logger.error(f"Error reading PG ETF cache (batch): {e}")
+                need_online.extend(pg_candidates)
 
-                last_date = df.index[-1].date()
-                is_fresh = self.check_is_fresh(df)
-                if not check_freshness or is_fresh:
-                    logger.info(f"Loaded ETF data for {code} from PG cache (last: {last_date})")
-                    result[code] = df  # 暂存，后续统一处理前复权
-                else:
-                    logger.debug(f"ETF {code}: PG cache stale (last: {last_date}), will fetch online")
-                    need_online.append(code)
-        except Exception as e:
-            logger.error(f"Error reading PG ETF cache (batch): {e}")
-            need_online.extend(pg_candidates)
+            _t2 = _time.monotonic()
+            logger.info(f"[batch] PG cache: {len(result) - len(loaded_codes)} loaded in {_t2 - _t1:.1f}s")
 
         # 批量并发处理前复权
         if adjust_qfq and result:
             self._apply_qfq_batch(list(result.keys()), result)
 
-        # 应用 intraday 处理
-        for code in list(result.keys()):
-            result[code] = self._append_intraday_if_needed(code, result[code], intraday, adjust_qfq)
-
-        # 3. 在线获取缺失数据
+        # 3. 在线获取缺失数据（禁用 auto_retry 避免重试放大延迟）
         if allow_online and need_online:
-            for code in need_online:
+            logger.info(f"[batch] Fetching {len(need_online)} codes online...")
+            for i, code in enumerate(need_online, 1):
                 try:
-                    logger.info(f"Fetching ETF data for {code} from online TDX server...")
-                    df = get_security_bars(code)
+                    logger.info(f"[{i}/{len(need_online)}] Fetching ETF data for {code} from online TDX server...")
+                    df = get_security_bars(code, auto_retry=False)
                     if not df.empty:
                         if adjust_qfq:
                             df = self._apply_qfq(code, df)
                         save_daily_to_db("etf_daily", code, df)
                         logger.info(f"Saved online data to PG cache: {code} (last: {df.index[-1].date()})")
-                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq)
+                        result[code] = df
                 except Exception as e:
                     logger.error(f"Failed to fetch online data for {code}: {e}")
 
+            _t3 = _time.monotonic()
+            logger.info(f"[batch] Online fetch done in {_t3 - _t1:.1f}s")
+
+        # 批量 intraday 处理（一次连接获取所有实时行情）
+        if intraday and result:
+            result = self._batch_append_intraday(result, adjust_qfq=adjust_qfq)
+
+        _t_end = _time.monotonic()
+        logger.info(f"[batch] ETF load complete: {len(result)} codes in {_t_end - _t0:.1f}s")
         return result
 
     def load_stock_data_batch(self, codes: List[str], check_freshness: bool = True, allow_online: bool = True, intraday: bool = False, interval: str = "1d") -> Dict[str, pd.DataFrame]:
@@ -292,6 +304,8 @@ class ETFDataSource:
         :param interval: K线周期
         :return: {code: DataFrame} 字典
         """
+        import time as _time
+        _t0 = _time.monotonic()
         bar_interval = get_interval(interval)
         if not bar_interval.is_daily:
             return self._load_minute_data_resampled_batch(codes, bar_interval)
@@ -299,56 +313,70 @@ class ETFDataSource:
         result: Dict[str, pd.DataFrame] = {}
         need_online = []
 
-        # 1. 尝试从本地 TDX 文件加载
+        # 1. 尝试从本地 TDX 文件加载（不调用 intraday，最后统一批量处理）
         for code in codes:
             tdx_path = get_tdx_path(code)
             if tdx_path and tdx_path.exists():
                 try:
                     df = parse_tdx_day_file(tdx_path)
                     if not df.empty:
-                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
+                        result[code] = df
                 except Exception as e:
                     logger.error(f"Failed to load TDX stock data for {code}: {e}")
 
+        _t1 = _time.monotonic()
+        logger.info(f"[batch] TDX local: {len(result)}/{len(codes)} loaded in {_t1 - _t0:.1f}s")
+
         loaded_codes = set(result.keys())
         pg_candidates = [c for c in codes if c not in loaded_codes]
-        if not pg_candidates:
-            return result
+        if pg_candidates:
+            # 2. 批量从 PG 缓存加载
+            try:
+                pg_data = load_daily_batch_from_db("stock_daily", pg_candidates)
+                for code in pg_candidates:
+                    df = pg_data.get(code)
+                    if df is None or df.empty:
+                        need_online.append(code)
+                        continue
 
-        # 2. 批量从 PG 缓存加载
-        try:
-            pg_data = load_daily_batch_from_db("stock_daily", pg_candidates)
-            for code in pg_candidates:
-                df = pg_data.get(code)
-                if df is None or df.empty:
-                    need_online.append(code)
-                    continue
+                    last_date = df.index[-1].date()
+                    is_fresh = self.check_is_fresh(df)
+                    if not check_freshness or is_fresh:
+                        logger.info(f"Loaded stock data for {code} from PG cache (last: {last_date})")
+                        result[code] = df
+                    else:
+                        logger.debug(f"Stock {code}: PG cache stale (last: {last_date}), will fetch online")
+                        need_online.append(code)
+            except Exception as e:
+                logger.error(f"Error reading PG stock cache (batch): {e}")
+                need_online.extend(pg_candidates)
 
-                last_date = df.index[-1].date()
-                is_fresh = self.check_is_fresh(df)
-                if not check_freshness or is_fresh:
-                    logger.info(f"Loaded stock data for {code} from PG cache (last: {last_date})")
-                    result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
-                else:
-                    logger.debug(f"Stock {code}: PG cache stale (last: {last_date}), will fetch online")
-                    need_online.append(code)
-        except Exception as e:
-            logger.error(f"Error reading PG stock cache (batch): {e}")
-            need_online.extend(pg_candidates)
+            _t2 = _time.monotonic()
+            logger.info(f"[batch] PG cache: {len(result) - len(loaded_codes)} loaded in {_t2 - _t1:.1f}s")
 
-        # 3. 在线获取缺失数据
+        # 3. 在线获取缺失数据（禁用 auto_retry 避免重试放大延迟）
         if allow_online and need_online:
-            for code in need_online:
+            logger.info(f"[batch] Fetching {len(need_online)} codes online...")
+            for i, code in enumerate(need_online, 1):
                 try:
-                    logger.info(f"Fetching stock data for {code} from online TDX server...")
-                    df = get_security_bars(code)
+                    logger.info(f"[{i}/{len(need_online)}] Fetching stock data for {code} from online TDX server...")
+                    df = get_security_bars(code, auto_retry=False)
                     if not df.empty:
                         save_daily_to_db("stock_daily", code, df)
                         logger.info(f"Saved online stock data to PG cache: {code} (last: {df.index[-1].date()})")
-                        result[code] = self._append_intraday_if_needed(code, df, intraday, adjust_qfq=False)
+                        result[code] = df
                 except Exception as e:
                     logger.error(f"Failed to fetch online stock data for {code}: {e}")
 
+            _t3 = _time.monotonic()
+            logger.info(f"[batch] Online fetch done in {_t3 - _t2:.1f}s")
+
+        # 批量 intraday 处理（一次连接获取所有实时行情，避免逐只连接）
+        if intraday and result:
+            result = self._batch_append_intraday(result, adjust_qfq=False)
+
+        _t_end = _time.monotonic()
+        logger.info(f"[batch] Stock load complete: {len(result)} codes in {_t_end - _t0:.1f}s")
         return result
 
     def _save_cached_name_map(self, map_type: str, name_map: dict[str, str]):
@@ -588,6 +616,109 @@ class ETFDataSource:
             logger.info(f"Saved intraday bar to PG cache: {table}/{code} (date: {df.index[-1].date()})")
         except Exception as e:
             logger.warning(f"Failed to save intraday bar to DuckDB cache for {code}: {e}")
+
+    def _batch_append_intraday(
+        self, result: Dict[str, pd.DataFrame], adjust_qfq: bool = False
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        批量构造 intraday bar（一次连接获取所有实时行情，避免逐只连接导致卡死）
+        :param result: {code: DataFrame} 字典（历史数据）
+        :param adjust_qfq: 是否应用前复权调整
+        :return: 更新后的 result 字典
+        """
+        if not is_intraday():
+            return result
+
+        codes = list(result.keys())
+        logger.info(f"[batch-intraday] Fetching realtime quotes for {len(codes)} codes...")
+
+        try:
+            quotes_df = get_realtime_quote(codes, auto_retry=False)
+        except Exception as e:
+            logger.warning(f"[batch-intraday] Batch realtime quote failed: {e}")
+            return result
+
+        if quotes_df.empty:
+            logger.warning("[batch-intraday] No realtime quotes returned, skipping intraday")
+            return result
+
+        # 构造 code → quote 映射
+        quotes_map: dict[str, dict] = {}
+        if "code" in quotes_df.columns:
+            for _, row in quotes_df.iterrows():
+                code_str = str(row.get("code", "")).strip()
+                if code_str:
+                    quotes_map[code_str] = row.to_dict()
+
+        appended_count = 0
+        for code in codes:
+            df = result[code]
+            if df is None or df.empty:
+                continue
+
+            quote = quotes_map.get(code)
+            if not quote:
+                logger.debug(f"[batch-intraday] No quote for {code}, skipping")
+                continue
+
+            # 构造 intraday bar
+            close = quote.get("price") or quote.get("close", 0)
+            if not close or close <= 0:
+                continue
+
+            today = datetime.now().date()
+            today_dt = datetime.combine(today, datetime.min.time())
+            open_price = quote.get("open", close)
+            high = quote.get("high", close)
+            low = quote.get("low", close)
+            volume = quote.get("vol", quote.get("volume", 0))
+            amount = quote.get("amount", 0)
+
+            # 计算 pct_chg
+            pct_chg = 0.0
+            if not df.empty:
+                prev_close = df.iloc[-1]["close"]
+                if prev_close > 0:
+                    pct_chg = (close - prev_close) / prev_close * 100
+
+            intraday_bar = pd.DataFrame(
+                {"open": [open_price], "high": [high], "low": [low],
+                 "close": [close], "amount": [amount], "volume": [volume],
+                 "pct_chg": [pct_chg]},
+                index=pd.DatetimeIndex([today_dt], name="date"),
+            )
+
+            # 前复权调整（ETF）
+            if adjust_qfq and not df.empty:
+                df_unadjusted = self._load_unadjusted_data(code)
+                if df_unadjusted is not None and not df_unadjusted.empty:
+                    unadj_close = df_unadjusted.iloc[-1]["close"]
+                    if unadj_close > 0 and intraday_bar.iloc[0]["close"] > 0:
+                        adj_ratio = df.iloc[-1]["close"] / unadj_close
+                        for col in ["open", "high", "low", "close"]:
+                            intraday_bar[col] *= adj_ratio
+                        if len(df) > 0:
+                            prev_close = df.iloc[-1]["close"]
+                            intraday_bar["pct_chg"] = (
+                                (intraday_bar.iloc[0]["close"] - prev_close) / prev_close * 100
+                            )
+
+            # 去重并拼接
+            today_mask = df.index.date == today
+            if today_mask.any():
+                df = df[~today_mask]
+
+            df = pd.concat([df, intraday_bar])
+            df.sort_index(inplace=True)
+            result[code] = df
+            appended_count += 1
+
+            # 保存到缓存
+            self._save_with_intraday_to_cache(code, df, is_stock=not adjust_qfq)
+
+        logger.info(f"[batch-intraday] Appended intraday bars for {appended_count}/{len(codes)} codes")
+        return result
+
 
     def _load_unadjusted_data(self, code: str) -> pd.DataFrame | None:
         """

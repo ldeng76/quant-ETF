@@ -163,7 +163,7 @@ class BaseTask(ABC):
 
     def run(self) -> None:
         """
-        任务主流程
+        任务主流程（带超时保护，防止网络操作卡死导致进程挂起）
         """
         logger.info(f"Starting task: {self.name}")
         logger.info(f"Description: {self.description}")
@@ -173,7 +173,22 @@ class BaseTask(ABC):
         pool = self.get_pool()
         logger.info(f"Loading data for {len(pool)} securities...")
 
-        data = self.load_data(pool)
+        # 使用线程池 + 超时保护数据加载，防止 pytdx 网络操作无限阻塞
+        LOAD_TIMEOUT = 300  # 5分钟超时
+        with ThreadPoolExecutor(max_workers=1) as _load_executor:
+            future = _load_executor.submit(self.load_data, pool)
+            try:
+                data = future.result(timeout=LOAD_TIMEOUT)
+            except TimeoutError:
+                logger.error(
+                    f"Data loading timed out after {LOAD_TIMEOUT}s for {len(pool)} securities. "
+                    f"Possible cause: TDX server unresponsive. Skipping this run."
+                )
+                future.cancel()
+                return
+            except Exception as e:
+                logger.error(f"Data loading failed with exception: {e}")
+                return
         if not data:
             logger.error("No data loaded. Exiting.")
             return
