@@ -398,14 +398,14 @@ def save_market_snapshot(state: MarketState) -> None:
         [
             state.time,
             state.market_type.value,
-            state.index_return,
-            state.etf_pool_return,
-            state.volatility,
-            state.trend_strength,
-            state.index_ma_short,
-            state.index_ma_long,
-            state.etf_pool_ma_short,
-            state.etf_pool_ma_long,
+            float(state.index_return),
+            float(state.etf_pool_return),
+            float(state.volatility),
+            float(state.trend_strength),
+            float(state.index_ma_short),
+            float(state.index_ma_long),
+            float(state.etf_pool_ma_short),
+            float(state.etf_pool_ma_long),
         ],
     )
     logger.debug("Market snapshot saved")
