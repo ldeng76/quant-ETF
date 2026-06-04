@@ -158,12 +158,36 @@ def _try_connect_and_fetch(
         return None
 
 
+SH_INDICES = {"000001", "000016", "000300", "000905", "000985"}
+SZ_INDICES = {"399001", "399006", "399005"}
+ALL_INDICES = SH_INDICES | SZ_INDICES
+
+
 def code_to_market(code: str) -> int:
     """
     根据证券代码判断市场代码
-    :param code: 证券代码 (e.g. "510050", "000001")
+    :param code: 证券代码 (e.g. "510050", "000001", "000300", "399001")
     :return: 市场代码 0:深圳，1:上海
+    
+    主要指数代码：
+    - 000001: 上证指数 (SH)
+    - 000016: 上证50 (SH)
+    - 000300: 沪深300 (SH)
+    - 000905: 中证500 (SH)
+    - 000985: 中证1000 (SH)
+    - 399001: 深证成指 (SZ)
+    - 399006: 创业板指 (SZ)
     """
+    if code in SH_INDICES:
+        return TDXParams.MARKET_SH
+    if code in SZ_INDICES:
+        return TDXParams.MARKET_SZ
+    
+    # 深证指数系列
+    if code.startswith("399"):
+        return TDXParams.MARKET_SZ
+    
+    # 股票/ETF代码
     if code.startswith(("5", "6")):
         return TDXParams.MARKET_SH
     elif code.startswith(("0", "1", "3")):

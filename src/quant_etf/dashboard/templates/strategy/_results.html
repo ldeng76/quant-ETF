@@ -14,19 +14,15 @@
                     {{ status.progress }}%
                 </div>
             </div>
+        <div class="text-center py-4">
+            <div class="progress mb-2">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     style="width: {{ status.progress }}%">
+                    {{ status.progress }}%
+                </div>
+            </div>
             <p class="text-muted">策略执行中... 开始于 {{ status.started_at }}</p>
-            <button class="btn btn-sm btn-outline-primary"
-                    hx-get="/api/strategy/status/{{ run_id }}"
-                    hx-trigger="every 2s"
-                    hx-swap="none"
-                    @htmx:after-request="
-                        const data = JSON.parse(event.detail.xhr.response);
-                        if (data.status === 'complete' || data.status === 'error') {
-                            htmx.ajax('GET', '/api/strategy/results/{{ run_id }}', { target: '#strategy-result' });
-                        }
-                    ">
-                自动刷新中...
-            </button>
+            <p class="small text-muted">等待完成后自动刷新...</p>
         </div>
 
         {% elif status.status == 'error' %}

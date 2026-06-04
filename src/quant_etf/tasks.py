@@ -171,6 +171,9 @@ class BaseTask(ABC):
         self.initialize()
 
         pool = self.get_pool()
+        if not pool:
+            logger.warning(f"Pool is empty for task '{self.name}', skipping.")
+            return
         logger.info(f"Loading data for {len(pool)} securities...")
 
         # 使用线程池 + 超时保护数据加载，防止 pytdx 网络操作无限阻塞

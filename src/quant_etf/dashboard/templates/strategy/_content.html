@@ -327,6 +327,7 @@ function strategyPage() {
             }
 
             document.getElementById('strategy-result').innerHTML = html;
+            htmx.process(document.getElementById('strategy-result'));
         }
     };
 }

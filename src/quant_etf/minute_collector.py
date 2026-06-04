@@ -14,7 +14,7 @@ from pytdx.hq import TdxHq_API
 from pytdx.params import TDXParams
 from pytdx.config.hosts import hq_hosts
 
-from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server, _tdx_timeout, TDX_SOCKET_TIMEOUT
+from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server, _tdx_timeout, TDX_SOCKET_TIMEOUT, code_to_market, ALL_INDICES as _ALL_INDICES
 from quant_etf.conf import DATA_DIR
 import time as time_module
 import psutil
@@ -104,18 +104,6 @@ def get_local_tdx_server() -> tuple[str, int] | None:
     return None
 
 
-def code_to_market(code: str) -> int:
-    """
-    根据证券代码判断市场代码
-    :param code: 证券代码 (e.g. "510050", "000001")
-    :return: 市场代码 0:深圳，1:上海
-    """
-    if code.startswith(("5", "6")):
-        return TDXParams.MARKET_SH
-    elif code.startswith(("0", "1", "3")):
-        return TDXParams.MARKET_SZ
-    else:
-        return TDXParams.MARKET_SZ
 
 
 def _normalize_bar_data(raw_data: list[dict]) -> list[dict]:
@@ -125,32 +113,63 @@ def _normalize_bar_data(raw_data: list[dict]) -> list[dict]:
     result = []
     for b in raw_data:
         if isinstance(b, dict) and "year" in b:
-            b["time"] = datetime(
-                year=b["year"], month=b["month"], day=b["day"],
-                hour=b.get("hour", 0), minute=b.get("minute", 0)
-            )
+            # 验证数据有效性，跳过垃圾数据
+            year = b.get("year", 0)
+            month = b.get("month", 0)
+            day = b.get("day", 0)
+            hour = b.get("hour", 0)
+            minute = b.get("minute", 0)
+            
+            # 跳过无效数据（TDX服务器有时返回垃圾数据）
+            if not (1 <= month <= 12 and 1 <= day <= 31 and 0 <= hour < 24 and 0 <= minute < 60):
+                continue
+            
+            try:
+                b["time"] = datetime(
+                    year=year, month=month, day=day,
+                    hour=hour, minute=minute
+                )
+            except (ValueError, OSError):
+                # 某些边界情况仍可能抛出异常
+                continue
         result.append(b)
     return result
-
-
 _MAX_BARS_PER_CALL = 800
+
+
+def is_index_code(code: str) -> bool:
+    """判断是否为指数代码"""
+    return code in _ALL_INDICES
 
 
 def _fetch_bars_paginated(api, market: int, code: str, count: int) -> list[dict]:
     """通过分页从已连接的 api 获取5分钟K线，单次最多 800 条"""
     all_bars: list[dict] = []
     fetched = 0
+    
+    # 指数代码使用 get_index_bars，普通股票使用 get_security_bars
+    use_index_api = is_index_code(code)
+    
     while fetched < count:
         batch_size = min(_MAX_BARS_PER_CALL, count - fetched)
-        data = api.get_security_bars(
-            category=0, market=market, code=code, start=fetched, count=batch_size
-        )
+        
+        if use_index_api:
+            # get_index_bars(category=0 for 5min, market, code, start, count)
+            data = api.get_index_bars(
+                category=0, market=market, code=code, start=fetched, count=batch_size
+            )
+        else:
+            data = api.get_security_bars(
+                category=0, market=market, code=code, start=fetched, count=batch_size
+            )
+        
         if not data:
             break
         all_bars.extend(data)
         fetched += len(data)
         if len(data) < batch_size:
             break
+    
     return _normalize_bar_data(all_bars)
 
 
@@ -319,6 +338,17 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
             time_val = row.time
             if isinstance(time_val, str):
                 time_val = pd.to_datetime(time_val)
+            
+            # 验证数值范围，防止溢出
+            vol = row.volume if row.volume else 0
+            amount = row.amount if row.amount else 0.0
+            
+            # pytdx 有时返回垃圾数据（如 2e+65），需要过滤
+            if vol > 1e15:  # 超过 1 千万亿视为无效
+                vol = 0
+            if amount > 1e15:
+                amount = 0.0
+            
             data.append((
                 code,
                 time_val,
@@ -326,8 +356,8 @@ def save_minute_data(code: str, df: pd.DataFrame) -> bool:
                 row.high,
                 row.low,
                 row.close,
-                int(row.volume) if row.volume else 0,
-                float(row.amount) if row.amount else 0.0,
+                int(vol),
+                float(amount),
                 time_val.year,
                 time_val.month,
                 time_val.day,

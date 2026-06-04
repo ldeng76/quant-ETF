@@ -30,6 +30,20 @@ def get_pg_conn():
         database=POSTGRES_DB,
     )
 
+_engine = None
+
+def get_pg_engine():
+    """获取 SQLAlchemy 引擎（用于 pandas read_sql），单例缓存"""
+    global _engine
+    if _engine is None:
+        from urllib.parse import quote_plus
+        from sqlalchemy import create_engine
+        encoded_password = quote_plus(POSTGRES_PASSWORD)
+        _engine = create_engine(
+            f"postgresql+psycopg2://{POSTGRES_USER}:{encoded_password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+        )
+    return _engine
+
 
 async def _get_pool() -> asyncpg.Pool:
     """获取或创建连接池"""

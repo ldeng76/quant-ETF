@@ -16,10 +16,9 @@ from datetime import datetime, timedelta
 from typing import Literal, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
-
-from quant_etf.dashboard.db import get_pg_conn, query_one
+from sqlalchemy import text
+from quant_etf.dashboard.db import get_pg_conn, get_pg_engine, query_one
 from quant_etf.conf import ETF_POOL
-
 
 class MarketType(Enum):
     """市场类型枚举"""
@@ -95,16 +94,16 @@ class MarketAnalyzer:
         :return: DataFrame
         """
         start_time = datetime.now() - timedelta(days=days)
-        with get_pg_conn() as conn:
+        with get_pg_engine().connect() as conn:
             df = pd.read_sql(
-                """
+                text("""
                 SELECT time, close
                 FROM minute_bars
-                WHERE code = %s AND time >= %s
+                WHERE code = :code AND time >= :start_time
                 ORDER BY time
-                """,
+                """),
                 conn,
-                params=[self.index_code, start_time.strftime("%Y-%m-%d")],
+                params={"code": self.index_code, "start_time": start_time.strftime("%Y-%m-%d")},
             )
             return df
 
