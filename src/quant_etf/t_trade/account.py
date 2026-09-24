@@ -117,6 +117,17 @@ class SubAccount:
         self.cash -= value + commission
         return Fill("buy", shares, buy_price, commission)
 
+    def _buy_unchecked(self, shares: int, price: float) -> Fill:
+        """强平专用买入：跳过现金校验（现金可小幅透支），其余校验照常。"""
+        if shares <= 0 or shares % self.lot_size != 0:
+            raise TOrderRejected("shares must be positive lot multiples")
+        buy_price = price * (1.0 + self.slippage)
+        value = shares * buy_price
+        commission = self._commission(value)
+        self.shares_held += shares
+        self.cash -= value + commission
+        return Fill("buy", shares, buy_price, commission)
+
     def sell(self, shares: int, price: float) -> Fill:
         """卖出（反T开仓腿卖底仓 / 正T对冲腿）。T+1 约束在此强制。"""
         if shares <= 0 or shares % self.lot_size != 0:
@@ -147,10 +158,12 @@ class SubAccount:
         self._pending_direction = direction
         return fill
 
-    def close_t(self, price: float) -> tuple[Fill, float]:
+    def close_t(self, price: float, force: bool = False) -> tuple[Fill, float]:
         """对冲腿：与开仓腿反向、**等量**，闭环即结算摊薄。返回 (成交, 差价)。
 
         差价（正为盈）已含两腿佣金，结算时摊入底仓成本。
+        force=True 用于 14:55 强平：对冲腿是铁律、必须成交，现金不足时
+        允许透支（现金可为小幅负值，等价于当日融资），不因余额拒绝。
         """
         if self._pending_t_shares is None:
             raise TOrderRejected("no pending T trade to close")
@@ -159,7 +172,7 @@ class SubAccount:
             fill = self.sell(shares, price)
             close_net = fill.price * shares - fill.commission
         else:
-            fill = self.buy(shares, price)
+            fill = self._buy_unchecked(shares, price) if force else self.buy(shares, price)
             close_net = -(fill.price * shares + fill.commission)
         profit = self._open_leg_net + close_net
         self._pending_t_shares = None

@@ -1,7 +1,8 @@
-"""消融、回测矩阵与成本敏感性：M5 二期决策材料的批量实验编排。
+"""消融、回测矩阵与成本敏感性：M4a 批量实验编排（M5 决策材料）。
 
 所有实验共用同一份预加载的 bars（内存中重复跑 run_backtest），
-差异只来自参数——由 params 快照保证可复现。
+差异只来自参数——由 params.json 运行快照保证可复现。
+表中 excess 即 CONTEXT.md 主口径"做T vs 纯持有的增量收益"（元）。
 """
 
 import dataclasses
@@ -44,10 +45,14 @@ def run_ablation(
     params: TTradeParams,
     total_cash: float,
     index_bars: pd.DataFrame | None = None,
+    baseline: BacktestResult | None = None,
 ) -> pd.DataFrame:
-    """逐开关关闭重跑，输出边际贡献表（含全开基线）。"""
+    """逐开关关闭重跑，输出边际贡献表（含全开基线）。
+
+    baseline 可传入编排方已算好的全开回测结果，避免重复执行。
+    """
     rows = []
-    base_result = run_backtest(codes, bars, params, total_cash, index_bars)
+    base_result = baseline or run_backtest(codes, bars, params, total_cash, index_bars)
     rows.append({"config": "baseline(全开)", **_summarize(base_result)})
     base_excess = _excess(base_result)
 
@@ -57,7 +62,8 @@ def run_ablation(
         rows.append({
             "config": f"关 {switch}",
             **_summarize(r),
-            "marginal_excess": round(_excess(r) - base_excess, 2),
+            # 该开关的贡献 = 基线增量 − 关掉后的增量（正=开关有正贡献）
+            "switch_contribution": round(base_excess - _excess(r), 2),
         })
 
     # 逆势T：默认关，消融做"开启"方向
@@ -66,12 +72,10 @@ def run_ablation(
     rows.append({
         "config": "开 allow_offside_t",
         **_summarize(r),
-        "marginal_excess": round(_excess(r) - base_excess, 2),
+        "switch_contribution": round(_excess(r) - base_excess, 2),
     })
 
-    df = pd.DataFrame(rows)
-    df.attrs["amp_floor_note"] = "振幅过滤的池内校准阈值见 params.json 与日志"
-    return df
+    return pd.DataFrame(rows)
 
 
 def run_cost_grid(

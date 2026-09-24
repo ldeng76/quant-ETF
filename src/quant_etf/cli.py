@@ -594,7 +594,8 @@ def _run_matrix(codes, bars, params, args, index_bars):
 
     logger.info("[matrix] 基线回测 + 增强开关消融")
     baseline = run_backtest(codes, bars, params, total_cash=args.cash, index_bars=index_bars)
-    ablation = run_ablation(codes, bars, params, args.cash, index_bars)
+    ablation = run_ablation(codes, bars, params, args.cash, index_bars,
+                            baseline=baseline)
     ablation.to_csv(outdir / "ablation.csv", index=False, encoding="utf-8-sig")
 
     logger.info("[matrix] 主级别×RSI 阈值矩阵")

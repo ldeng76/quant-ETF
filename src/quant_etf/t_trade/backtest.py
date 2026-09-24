@@ -191,7 +191,14 @@ def run_backtest(
         df = bars.get(code)
         if df is None or len(df) < params.ma_len + params.slope_n + params.rsi_len:
             continue
-        frames = compute_frames(df, params)
+        # 主级别即交易级别：15m 主级别在聚合后的 15m bars 上驱动引擎（真·级别切换）
+        drive = (
+            resample_intraday(df, "15min").reset_index()
+            if params.primary_level == "15m" else df
+        )
+        if len(drive) < params.ma_len + params.slope_n + params.rsi_len:
+            continue
+        frames = compute_frames(drive, params)
         hi_trend = higher_trend_series(df, params)
         hi_aligned = _align_trend(hi_trend, frames.time)
         idx_aligned = (
@@ -356,7 +363,17 @@ class _Executor:
             if order["action"] == TtAction.OPEN_T:
                 self._open(order, price, exec_time)
             else:
-                self._close(order, price, exec_time)
+                try:
+                    self._close(order, price, exec_time)
+                except TOrderRejected as e:
+                    if "no pending" in str(e):
+                        raise
+                    # 对冲腿是铁律：正常路径被拒（如现金不足）→ 强平重试
+                    self.result.trades.append({
+                        "code": self.code, "direction": "强平重试", "note": str(e),
+                        "signal_time": order["signal_time"],
+                    })
+                    self._close(order, price, exec_time, force=True)
         except TOrderRejected as e:
             self.result.trades.append({
                 "code": self.code, "direction": "被拒", "note": str(e),
@@ -383,8 +400,9 @@ class _Executor:
             "trigger": order["reason"],
         }
 
-    def _close(self, order: dict, price: float, exec_time: str) -> None:
-        fill, profit = self.acc.close_t(price=price)
+    def _close(self, order: dict, price: float, exec_time: str,
+               force: bool = False) -> None:
+        fill, profit = self.acc.close_t(price=price, force=force)
         row = dict(self.open_leg or {"direction": "未知", "code": self.code})
         leg1_price = row.get("leg1_price")
         holding_bars = None
@@ -433,9 +451,15 @@ def _combine_daily(equity_paths: dict, bh_paths: dict) -> pd.DataFrame:
 
 
 def write_outputs(result: BacktestResult, params: TTradeParams, outdir: Path) -> dict[str, Path]:
-    """最小产物集：trades.csv / equity.csv / summary.md / params.json。"""
+    """产物集：trades / equity / summary / params / dilution / html + 深度审计副本。"""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    # 深度审计报告拷入产物目录，避免"详见 data_audit.md"指针悬空
+    audit_src = outdir.parent / "data_audit.md"
+    if audit_src.exists() and not (outdir / "data_audit.md").exists():
+        (outdir / "data_audit.md").write_text(
+            audit_src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
     paths = {}
     trades_path = outdir / "trades.csv"
     pd.DataFrame(result.trades).to_csv(trades_path, index=False, encoding="utf-8-sig")

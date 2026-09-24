@@ -127,6 +127,19 @@ class TestTTradeLegs:
         with pytest.raises(TOrderRejected, match="pending"):
             acc.open_t(direction=Direction.FORWARD, shares=1000, price=10.0)
 
+    def test_force_close_allows_cash_overdraft(self):
+        # 14:55 强平是铁律：现金不足也必须买回（允许透支为负）
+        acc = SubAccount(total_cash=100_000.0, slippage=0.0, commission_rate=0.0)
+        acc.open_base_position(price=10.0)  # 底仓5000股，机动现金5万
+        acc.open_t(direction=Direction.REVERSE, shares=1000, price=10.0)  # 回笼1万 → 6万
+        acc.buy(shares=5500, price=10.0)  # 耗到剩5000（< 买回1000股所需1万）
+        with pytest.raises(TOrderRejected, match="insufficient"):
+            acc.buy(shares=1000, price=10.0)  # 正常买入被拒
+        fill, profit = acc.close_t(price=10.0, force=True)  # 强平买回 → 透支5000元
+        # 注：base_intact 仅在"无在场机动持仓"时成立，此处持有5500股机动持仓不适用
+        assert acc.cash == pytest.approx(-5_000.0)
+        assert profit == pytest.approx(0.0)
+
     def test_close_without_pending_rejected(self):
         acc = SubAccount(total_cash=100_000.0, slippage=0.0, commission_rate=0.0)
         acc.open_base_position(price=10.0)

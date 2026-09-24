@@ -9,6 +9,8 @@ from quant_etf.t_trade.metrics import (
     run_eod_compare,
     run_level_rsi_matrix,
 )
+import pytest
+
 from quant_etf.t_trade.params import TTradeParams
 
 
@@ -54,7 +56,16 @@ def test_ablation_shape_and_baseline():
     df = run_ablation(["TEST"], BARS, PARAMS, 100_000.0)
     assert len(df) == 8  # 基线 + 6 开关 + 逆势T
     assert df.iloc[0]["config"] == "baseline(全开)"
-    assert {"marginal_excess", "excess", "trades"} <= set(df.columns)
+    assert {"switch_contribution", "excess", "trades"} <= set(df.columns)
+    # 勾稽：默认开的开关贡献 = 基线excess−关闭后excess；逆势T（默认开→启）方向相反
+    base = float(df.iloc[0]["excess"])
+    for _, row in df.iloc[1:].iterrows():
+        if row["config"].startswith("关"):
+            assert row["switch_contribution"] == pytest.approx(
+                base - row["excess"], abs=0.05)
+        else:
+            assert row["switch_contribution"] == pytest.approx(
+                row["excess"] - base, abs=0.05)
 
 
 def test_cost_grid_rows():
