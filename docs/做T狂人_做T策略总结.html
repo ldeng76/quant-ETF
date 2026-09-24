@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>「做T狂人」做T策略总结</title>
+<style>
+  :root{
+    --bg:#f6f7f9;
+    --card:#ffffff;
+    --ink:#1a1d24;
+    --ink-2:#4a5160;
+    --ink-3:#7b8393;
+    --line:#e4e7ec;
+    --red:#d9382c;
+    --red-bg:#fdf0ee;
+    --green:#1f9d5b;
+    --green-bg:#edf8f2;
+    --blue:#2a5fd6;
+    --blue-bg:#eef3fd;
+    --amber:#b7791f;
+    --amber-bg:#fdf6e7;
+    --violet:#6b46c1;
+    --violet-bg:#f3effd;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.75;
+    font-size:15px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:48px 28px 90px;}
+
+  /* ---------- header ---------- */
+  header.hero{
+    background:linear-gradient(135deg,#20242e 0%,#2e3444 55%,#3b4257 100%);
+    color:#fff;
+    border-radius:20px;
+    padding:38px 40px 34px;
+    margin-bottom:30px;
+    position:relative;
+    overflow:hidden;
+  }
+  header.hero::after{
+    content:"";
+    position:absolute;right:-70px;top:-70px;
+    width:240px;height:240px;border-radius:50%;
+    background:radial-gradient(circle,rgba(217,56,44,.35),transparent 68%);
+  }
+  header.hero h1{margin:0 0 8px;font-size:28px;letter-spacing:.5px;}
+  header.hero .sub{color:#b9c0d0;font-size:14px;margin-bottom:20px;}
+  .tagrow{display:flex;flex-wrap:wrap;gap:8px;position:relative;z-index:2;}
+  .tag{
+    font-size:12.5px;padding:4px 11px;border-radius:999px;
+    background:rgba(255,255,255,.12);color:#e7eaf2;
+    border:1px solid rgba(255,255,255,.14);
+  }
+  .tag.hot{background:rgba(217,56,44,.28);border-color:rgba(217,56,44,.5);color:#ffd9d4;}
+
+  /* ---------- section ---------- */
+  section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:28px 30px;margin-bottom:20px;box-shadow:0 1px 2px rgba(16,24,40,.04);}
+  h2{
+    font-size:19px;margin:0 0 18px;padding-left:13px;
+    border-left:4px solid var(--red);line-height:1.3;
+  }
+  h3{font-size:15.5px;margin:22px 0 10px;color:var(--ink);}
+  h3:first-of-type{margin-top:6px;}
+  p{margin:0 0 12px;color:var(--ink-2);}
+  ul,ol{margin:0 0 12px;padding-left:22px;color:var(--ink-2);}
+  li{margin-bottom:6px;}
+  strong{color:var(--ink);}
+  code{
+    background:#f0f2f6;border:1px solid #e2e6ee;border-radius:5px;
+    padding:1px 6px;font-size:13px;color:#c0392b;
+    font-family:ui-monospace,Consolas,monospace;
+  }
+
+  /* ---------- callout ---------- */
+  .note{
+    border-radius:10px;padding:14px 18px;margin:16px 0;font-size:14px;
+    border-left:4px solid var(--blue);background:var(--blue-bg);color:#1e3a6b;
+  }
+  .note.red{border-color:var(--red);background:var(--red-bg);color:#8a2318;}
+  .note.green{border-color:var(--green);background:var(--green-bg);color:#12603a;}
+  .note.amber{border-color:var(--amber);background:var(--amber-bg);color:#7a5312;}
+  .note .t{font-weight:700;display:block;margin-bottom:4px;}
+
+  /* ---------- table ---------- */
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{background:#f7f8fa;font-weight:600;color:var(--ink);font-size:13.5px;white-space:nowrap;}
+  td{color:var(--ink-2);}
+  tr:last-child td{border-bottom:none;}
+  .up{color:var(--red);font-weight:600;}
+  .down{color:var(--green);font-weight:600;}
+
+  /* ---------- core cards ---------- */
+  .coregrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0;}
+  .corecard{
+    border-radius:12px;padding:20px 18px;text-align:center;
+    border:1px solid var(--line);background:#fbfcfd;
+  }
+  .corecard .num{
+    font-size:34px;font-weight:800;line-height:1;
+    background:linear-gradient(135deg,#d9382c,#b7791f);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    margin-bottom:8px;
+  }
+  .corecard .lbl{font-weight:700;font-size:14.5px;color:var(--ink);margin-bottom:6px;}
+  .corecard .desc{font-size:13px;color:var(--ink-3);line-height:1.6;}
+
+  /* ---------- pipeline ---------- */
+  .flow{display:flex;flex-direction:column;gap:0;margin:18px 0;}
+  .step{display:flex;gap:16px;position:relative;padding-bottom:20px;}
+  .step:last-child{padding-bottom:0;}
+  .step::before{
+    content:"";position:absolute;left:15px;top:32px;bottom:0;
+    width:2px;background:var(--line);
+  }
+  .step:last-child::before{display:none;}
+  .step .dot{
+    flex:0 0 32px;height:32px;border-radius:50%;
+    background:var(--ink);color:#fff;font-size:13px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;z-index:1;
+  }
+  .step .body{padding-top:3px;}
+  .step .body .st{font-weight:700;color:var(--ink);font-size:14.5px;margin-bottom:3px;}
+  .step .body .sd{font-size:13.5px;color:var(--ink-3);line-height:1.65;}
+
+  /* ---------- two col ---------- */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;}
+  .box{border-radius:12px;padding:18px 20px;border:1px solid var(--line);}
+  .box.zt{background:var(--red-bg);border-color:#f5d5d0;}
+  .box.ft{background:var(--green-bg);border-color:#cdeadb;}
+  .box h4{margin:0 0 10px;font-size:14.5px;display:flex;align-items:center;gap:8px;}
+  .box.zt h4{color:var(--red);}
+  .box.ft h4{color:var(--green);}
+  .box ul{padding-left:19px;margin-bottom:0;font-size:13.5px;}
+  .box li{color:var(--ink-2);}
+
+  /* ---------- footer ---------- */
+  footer{
+    text-align:center;color:var(--ink-3);font-size:12.5px;
+    padding-top:10px;line-height:1.9;
+  }
+  .src{font-size:12.5px;color:var(--ink-3);line-height:1.85;}
+  .src a{color:var(--blue);text-decoration:none;word-break:break-all;}
+  .src a:hover{text-decoration:underline;}
+
+  @media(max-width:720px){
+    .wrap{padding:24px 14px 60px;}
+    header.hero{padding:26px 22px;}
+    header.hero h1{font-size:22px;}
+    section{padding:22px 18px;}
+    .coregrid{grid-template-columns:1fr;}
+    .two{grid-template-columns:1fr;}
+    table{font-size:13px;}
+    th,td{padding:8px 9px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>「做T狂人」做T策略拆解</h1>
+  <div class="sub">今日头条博主 · 近1500篇微头条 + 60余篇长文 · 本报告基于其公开发布内容整理</div>
+  <div class="tagrow">
+    <span class="tag hot">核心：96均线 + RSI(6)</span>
+    <span class="tag">132交易法</span>
+    <span class="tag">共振理论</span>
+    <span class="tag">T循环</span>
+    <span class="tag">波段操作法</span>
+    <span class="tag">价格预测法</span>
+    <span class="tag">底仓5成 + 机动5成</span>
+  </div>
+</header>
+
+<!-- ================= 一句话总纲 ================= -->
+<section>
+  <h2>一句话总纲</h2>
+  <div class="note red">
+    <span class="t">不做预测，只做差价；不赌方向，只赚振幅。</span>
+    用一根 <strong>96均线</strong> 定趋势方向，用一个 <strong>参数为6的RSI</strong> 定超买超卖买卖点，用 <strong>大盘/板块/个股三级共振</strong> 定出手时机，用 <strong>"10份底仓 + 10份资金"</strong> 的仓位纪律兜底。向上做正T赚差价，向下做反T赚差价，长线底仓雷打不动等翻番行情——目标是把底仓成本逐步做到趋近于零甚至负数。
+  </div>
+  <p>他反复强调全书只讲三个字：<strong>差价、差价、差价</strong>。所有指标、级别、共振、仓位，最终都服务于"降低底仓成本"这一个目标。因此他自称"涨也欢喜、跌也欢喜"——涨了正T赚差价，跌了反T照样赚差价。</p>
+</section>
+
+<!-- ================= 二、理论体系 ================= -->
+<section>
+  <h2>一、理论体系：5大交易体系</h2>
+
+  <h3>1. 「132」交易法 —— 整个体系的骨架</h3>
+  <div class="coregrid">
+    <div class="corecard">
+      <div class="num">1</div>
+      <div class="lbl">1个核心</div>
+      <div class="desc">超短线做T投机 + 超长线价值投资相结合。大仓位（底仓）不动，小仓位（浮动仓）反复收割。</div>
+    </div>
+    <div class="corecard">
+      <div class="num">3</div>
+      <div class="lbl">3个完全分类</div>
+      <div class="desc">以96均线为界，走势有且仅有三种：上升、下降、横向盘整。分得清"上下横"，就会做T。</div>
+    </div>
+    <div class="corecard">
+      <div class="num">2</div>
+      <div class="lbl">2个高胜率模式</div>
+      <div class="desc">大盘+板块+个股"同频共振"时的正T/反T机会。平时1份1份做，此时可"重拳出击"。</div>
+    </div>
+  </div>
+
+  <h3>2. 三个完全分类 → 三种操作侧重</h3>
+  <table>
+    <thead>
+      <tr><th>96均线状态</th><th>走势性质</th><th>主攻方向</th><th>关键提醒</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="up">均线总体上行</td>
+        <td>上升趋势</td>
+        <td><strong>以正T为主</strong>（先买后卖）</td>
+        <td>若K线远远高于均线，物极必反，可视情况反T。</td>
+      </tr>
+      <tr>
+        <td>均线总体横走</td>
+        <td>盘整/箱体</td>
+        <td><strong>正T、反T都可做</strong></td>
+        <td>K线远离均线时做T效果更好——箱体上下沿来回套利。</td>
+      </tr>
+      <tr>
+        <td class="down">均线总体下行</td>
+        <td>下降趋势</td>
+        <td><strong>以反T为主</strong>（先卖后买）</td>
+        <td>若K线远远低于均线，物极必反，可视情况正T。</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <span class="t">为什么他"更喜欢做反T"？</span>
+    A股是结构化行情，跌多涨少、急涨缓跌——在这种市场里 <strong>反T的机会天然更多、胜率更高</strong>。多数散户只爱做正T，是认知盲区。
+  </div>
+
+  <h3>3. 共振理论 —— 把"赌运气"变成"算概率"</h3>
+  <ul>
+    <li><strong>横向共振：</strong>大盘、板块、个股三者96均线方向一致。三者都看涨 → 正T成功率高；都看跌 → 反T成功率高；都盘整 → 正反都高；<strong>走势不一致 → 忍住不做</strong>。</li>
+    <li><strong>纵向共振：</strong>同一标的多个时间级别方向一致（如15分钟与5分钟96均线同时上行）。</li>
+    <li>核心口诀：<strong>顺势而为</strong>——但"顺势绝不是无脑跟风"，背后是"随大势、逆小势"：顺大级别趋势，逆小级别回调。</li>
+  </ul>
+
+  <h3>4. 波段操作法 —— 做T的"无缝升级版"</h3>
+  <p>与做T同源，只是把级别放大：<strong>做T看5分钟/1分钟，做波段看60分钟及以上</strong>。逻辑完全一样——96均线定方向、RSI定买卖点，只是差价更大、频次更低、留给思考的时间更多。</p>
+  <div class="note amber">
+    <span class="t">资金量小的人的建议</span>
+    做T受资金限制时，不如放弃5分钟的小红绿柱，改去60分钟级别做波段。别人辛辛苦苦做几十次T，你一次波段的差价可能比他还多。<strong>"先易后难，慢就是快"。</strong>
+  </div>
+
+  <h3>5. T循环理论 & 价格预测法</h3>
+  <ul>
+    <li><strong>T循环：</strong>植根于波浪理论、缠论（三类买卖点、区间套、多级别背驰）、格兰威尔八大买卖法则。核心是"顺大逆小、大的不动小的收割"——日内情绪相对有序，所以日内差价可稳定获得；做错了不急，小本子记着，过几天循环回来自然就对了。</li>
+    <li><strong>价格预测法：</strong>目标"<strong>买在下影线、卖在上影线</strong>"，让差价最大化。核心是提前计算、提前挂单委托、尽量保证成交。主要用于"上升趋势中的急跌/回调"与"下降趋势中的急涨/反弹"两种场景。</li>
+  </ul>
+  <div class="note violet" style="border-color:var(--violet);background:var(--violet-bg);color:#4c3191;">
+    <span class="t">影线战法的底层逻辑（他改进自一位姓殷的股民）</span>
+    前人说法："线上阴线买，买错也要买；线下阳线抛，抛错也要抛。"<br>
+    他改为：「<strong>线上下影线买，买错也要买；线下上影线抛，抛错也要抛。</strong>」<br>
+    把"阴阳"换成"影线"——因为 <strong>下影线是"跌不动"的证明，上影线是"涨不动"的证明</strong>。趋势会保护你，所以买错也要买、抛错也要抛。
+  </div>
+</section>
+
+<!-- ================= 三、指标参数 ================= -->
+<section>
+  <h2>二、核心指标与参数设置（最关键的落地细节）</h2>
+  <table>
+    <thead>
+      <tr><th>项目</th><th>参数</th><th>作用</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>移动平均线</strong></td>
+        <td><code>96</code>（主）、<code>24</code>、<code>6</code></td>
+        <td>96均线判趋势方向；24与6均线用于1分钟级别辅助判断拐点（6均线死叉/金叉24均线）。<strong>所有级别均线统一设为96/24/6。</strong></td>
+      </tr>
+      <tr>
+        <td><strong>RSI</strong></td>
+        <td><code>6</code>（所有级别统一）</td>
+        <td>判断超买超卖：下行至 <strong>20附近</strong> = 超卖（买点）；上行至 <strong>80附近</strong> = 超买（卖点）。</td>
+      </tr>
+      <tr>
+        <td><strong>MACD</strong></td>
+        <td>默认参数</td>
+        <td>看红绿柱子"不再伸长"；次级别找底背驰/顶背驰（绿柱前大后小）。</td>
+      </tr>
+      <tr>
+        <td><strong>级别选择</strong></td>
+        <td>活跃品种用5分钟<br>大象股/ETF用15分钟</td>
+        <td>无优劣，只是活波品种风险大差价大、不活跃品种风险小差价小。没时间盯盘就放大到30/60/日线做波段。</td>
+      </tr>
+      <tr>
+        <td><strong>振幅指标</strong></td>
+        <td>6日/24日/96日平均振幅</td>
+        <td>高胜率机会的振幅至少 > 三者中最小那个。没把握的可在平均振幅的一半起分批操作。</td>
+      </tr>
+      <tr>
+        <td><strong>顶底分型</strong></td>
+        <td>5分钟底分型/顶分型</td>
+        <td>止跌/见顶信号。把握困难时去1分钟看6均线与24均线的交叉。</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <span class="t">均线为什么选96？</span>
+    96 = 4小时 × 24根/小时（分钟级别）或约2个交易日/5个月（不同级别）。他看中的是：<strong>均线上行=多头成本在抬高，均线下行=空头在压价，均线横走=多空势均力敌</strong>。一根线就把"上涨/下跌/盘整"三种走势说清楚。
+  </div>
+</section>
+
+<!-- ================= 四、实操 ================= -->
+<section>
+  <h2>三、实操：正T与反T的完整打法</h2>
+
+  <div class="two">
+    <div class="box zt">
+      <h4>▲ 正T（先买后卖）· 上升趋势主用</h4>
+      <ul>
+        <li><strong>适用：</strong>低开/盘中急跌、回踩支撑企稳、上升趋势中的回调。</li>
+        <li><strong>操作：</strong>支撑位用机动资金低吸 → 冲高滞涨/背离时卖出<strong>同等数量</strong>底仓。</li>
+        <li><strong>结果：</strong>底仓股数不变，现金增加，成本下降。</li>
+        <li><strong>优点：</strong>不会卖飞底仓，心态稳，适合新手先练。</li>
+        <li><strong>缺点：</strong>买后继续跌会临时加重仓位。</li>
+      </ul>
+    </div>
+    <div class="box ft">
+      <h4>▼ 反T（先卖后买）· 下降趋势主用</h4>
+      <ul>
+        <li><strong>适用：</strong>高开冲高、放量滞涨、反弹遇压回落。</li>
+        <li><strong>操作：</strong>冲高乏力时先卖出一部分底仓 → 回落缩量企稳后<strong>同等数量</strong>买回。</li>
+        <li><strong>结果：</strong>筹码总数不变，规避回调，成本下降。</li>
+        <li><strong>优点：</strong>A股跌多涨少，反T机会更多。</li>
+        <li><strong>缺点：</strong>卖后一路拉升会"T飞"，难度更高。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>高胜率正T模式（重拳出击条件，缺一不可）</h3>
+  <div class="flow">
+    <div class="step"><div class="dot">1</div><div class="body">
+      <div class="st">趋势前提</div>
+      <div class="sd">15分钟周期96均线<strong>上行</strong> + 5分钟周期96均线<strong>上行</strong>。</div>
+    </div></div>
+    <div class="step"><div class="dot">2</div><div class="body">
+      <div class="st">当日形态</div>
+      <div class="sd">高开或平开高走，先小幅上涨1~2个点，之后回调。</div>
+    </div></div>
+    <div class="step"><div class="dot">3</div><div class="body">
+      <div class="st">回调位置</div>
+      <div class="sd">回调<strong>不有效跌破上一交易日的成交密集区</strong>（"收拳头"）；出现止跌信号——<strong>5分钟底分型 + 成交量缩小</strong>。把握困难时去1分钟看6均线/24均线，或看底背驰形态（下跌—小涨—缓跌止跌）。</div>
+    </div></div>
+    <div class="step"><div class="dot">4</div><div class="body">
+      <div class="st">环境验证</div>
+      <div class="sd">大盘、板块环境平稳，无大跌风险。三者共振看涨时胜率最高。</div>
+    </div></div>
+  </div>
+
+  <h3>高胜率反T模式（对称条件）</h3>
+  <ul>
+    <li>15分钟96均线<strong>下行</strong> + 5分钟96均线<strong>下行</strong>。</li>
+    <li>低开或平开低走，先小幅下跌1~2个点，之后<strong>无量反弹</strong>。</li>
+    <li>反弹<strong>不有效突破</strong>上一交易日成交密集区，出现<strong>5分钟顶分型</strong>。</li>
+    <li>大盘、板块环境不佳、无看涨预期。</li>
+    <li><strong>与正T"慢慢观察"不同，反T需要眼疾手快</strong>——多数情况下1分钟6均线死叉24均线就是见顶信号，必须立即出手。</li>
+  </ul>
+  <div class="note green">
+    <span class="t">"走势漏洞"的本质</span>
+    他称之为"打拳"：<strong>先把拳头收回来，再打出去</strong>才有力量。要抓的就是"收拳头 → 再打出去"中间的这段机会。这不是百分百的规律，只是<strong>概率上占优</strong>的位置。把这套模式做熟后，就可结合仓位资金管理"重拳出击"，既不会被套也不会T飞。
+  </div>
+
+  <h3>买点 / 卖点信号清单</h3>
+  <table>
+    <thead><tr><th>方向</th><th>信号</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr>
+        <td rowspan="4" class="up">买入<br>（做正T）</td>
+        <td>96均线上行 + RSI(6)回落至20附近</td>
+        <td>核心正T买点。"上升趋势中所有买点都是正确的，只有最后一个是错的。"</td>
+      </tr>
+      <tr><td>远离96均线下方形成底分型</td><td>K线远离均线时变盘概率最高。</td></tr>
+      <tr><td>1分钟看：下跌—小涨—缓跌止跌（底背驰）</td><td>MACD绿柱面积变小、两段跌幅收窄。</td></tr>
+      <tr><td>下影线企稳</td><td>下影线=跌不动的证明；需缩量，且之后不再创新低。</td></tr>
+      <tr>
+        <td rowspan="4" class="down">卖出<br>（做反T）</td>
+        <td>96均线下行 + RSI(6)上行至80附近</td>
+        <td>核心反T卖点。</td>
+      </tr>
+      <tr><td>远离96均线上方形成顶分型</td><td>多为无量反弹。</td></tr>
+      <tr><td>1分钟看：6均线死叉24均线 / 顶背驰</td><td>上涨—小跌—滞涨见顶。</td></tr>
+      <tr><td>上影线承压</td><td>上影线=涨不动的证明，上方抛压重。</td></tr>
+    </tbody>
+  </table>
+  <p class="src" style="margin-top:10px;">另可辅以 MACD 红绿柱"不再伸长"：上升趋势中绿柱不再伸长低吸，下降趋势中红柱不再伸长高抛。</p>
+</section>
+
+<!-- ================= 五、仓位与选股 ================= -->
+<section>
+  <h2>四、仓位管理：整套体系的"生命线"</h2>
+  <div class="note red">
+    <span class="t">他反复强调：盈利的核心是仓位管理，而非技术分析。</span>
+    "技术分析无法雪中送炭，只能锦上添花。" —— 新手别沉迷技术误区，先把仓位加减做好。
+  </div>
+
+  <h3>资金拆分：10份底仓 + 10份机动</h3>
+  <div class="coregrid">
+    <div class="corecard">
+      <div class="num">50%</div>
+      <div class="lbl">底仓（10份）</div>
+      <div class="desc">"雷打不动"，只做正的降低成本，<strong>不因看好而增加、不因恐慌而减少</strong>。是你在个股里的"根据地"，是心态的锚。</div>
+    </div>
+    <div class="corecard">
+      <div class="num">50%</div>
+      <div class="lbl">机动资金（10份）</div>
+      <div class="desc">专门做T、做波段。<strong>把握不大时1份1份做，把握大时多份出击</strong>。这是"132"的安全基础。</div>
+    </div>
+    <div class="corecard">
+      <div class="num">≈0</div>
+      <div class="lbl">目标：成本趋于零</div>
+      <div class="desc">通过无数次差价把底仓成本逐步压低，最终目标"无限接近于0甚至负数"。</div>
+    </div>
+  </div>
+
+  <h3>仓位铁律</h3>
+  <ul>
+    <li><strong>轻仓是前提：</strong>"轻仓才能霸道"。轻仓试错 → 逐步加重 → 胜率必然越来越高。</li>
+    <li><strong>分批有序：</strong>绝不搞"一锤子买卖"，1份1份做。</li>
+    <li><strong>买卖数量对等：</strong>买多少后面就卖多少，防止仓位被动变化，把做T做成加仓。</li>
+    <li><strong>当日闭环：</strong>当天买的当天T出去，当天卖的尽量当天接回，不留隔夜T单。</li>
+    <li><strong>做错要认：</strong>做T失败不硬扛、不逆势加仓摊薄，防止小错变大亏。</li>
+    <li><strong>最简单的新手规则：</strong>仓位重 → 逢涨/逢反弹做反T；仓位轻 → 逢跌/逢回调做正T。八个字："<strong>涨舍得卖，跌敢于买</strong>"。</li>
+    <li><strong>100股买卖法：</strong>新手可用每次100股的最小单位练手，不必纠结手续费。</li>
+  </ul>
+
+  <h3>选股标准（做T的前提，选错票再好的手法也没用）</h3>
+  <table>
+    <thead><tr><th>维度</th><th>标准</th></tr></thead>
+    <tbody>
+      <tr><td><strong>基本面</strong></td><td>国资背景（防退市）、现金流好、净资产高、业绩优、高分红；"没有不好的股票，只有不好的操作"，但前提是不退市不停牌。</td></tr>
+      <tr><td><strong>价格位置</strong></td><td>月线级别处于<strong>底部区域</strong>（近3年未涨超1倍），价格10元左右为佳。</td></tr>
+      <tr><td><strong>活跃度</strong></td><td>1000天平均振幅 <strong>&gt; 3%</strong>（"不怕股票不大涨，就怕股票没振幅"）；流动性充足，避免做T做不动。</td></tr>
+      <tr><td><strong>分散配置</strong></td><td>常年持有 <strong>8只</strong> 不同行业的个股，东方不亮西方亮。强股做正T（锦上添花），弱股做反T（落井下石），不强不弱则不操作、耐心等。</td></tr>
+    </tbody>
+  </table>
+  <div class="note amber">
+    <span class="t">建仓方式</span>
+    价值股在<strong>月/周线级别底背驰 + 放量上涨后</strong>，回调时开始建仓。以5分钟96均线为参照，1份1次做正T建仓，"每笔底仓不涨不卖"，直到完成5成底仓。若小级别背驰买入后仍跌，依次等待更大级别的背驰。
+  </div>
+</section>
+
+<!-- ================= 六、行情适配 ================= -->
+<section>
+  <h2>五、什么时候做、什么时候必须停手</h2>
+  <div class="two">
+    <div class="box" style="background:var(--green-bg);border-color:#cdeadb;">
+      <h4 style="color:var(--green);">✓ 全力做T的行情</h4>
+      <ul>
+        <li><strong>箱体震荡</strong>——最友好的环境，价差稳定，复利最快。</li>
+        <li><strong>主升中继洗盘</strong>——大趋势向上、日内震荡，双向盈利。</li>
+        <li><strong>大盘震荡整理</strong>——无系统性风险、板块轮动平稳。</li>
+        <li>日内振幅 ≥ 3% 才有足够差价空间。</li>
+      </ul>
+    </div>
+    <div class="box" style="background:var(--red-bg);border-color:#f5d5d0;">
+      <h4 style="color:var(--red);">✕ 坚决停手的行情</h4>
+      <ul>
+        <li><strong>单边主升浪</strong>——容易卖飞，尽量少做甚至不做T。</li>
+        <li><strong>单边下跌趋势</strong>——反弹空间小，越T套越深。</li>
+        <li><strong>高位破位暴跌</strong>——趋势彻底反转，只守不动或减仓避险。</li>
+        <li>日内振幅 &lt; 1.5%——差价不够覆盖摩擦成本，直接休息。</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note">
+    <span class="t">时机规律（他承认"不绝对，但多数交易日符合"）</span>
+    上午 10:00–11:00 常为全天低点区域 → 适合正T；下午 13:30–14:30 常为全天高点区域 → 适合反T。此外，每天先看美股隔夜表现判断A股开盘基调。
+  </div>
+</section>
+
+<!-- ================= 七、心法 ================= -->
+<section>
+  <h2>六、心法与思维观念（他认为这才是最难的部分）</h2>
+  <p>"做T最难的不是技术，而是心法。" 他花大量篇幅讲的是观念转变：</p>
+  <ul>
+    <li><strong>算总账，不算单笔：</strong>T飞了不是坏事——说明上升趋势来了，剩余底仓即将赚钱。"某种角度讲，反倒是热切地期待T飞。"买卖追求的是总体盈亏，而不一定是每一单的盈亏。</li>
+    <li><strong>不分别、不执着：</strong>不要分别"正T好、反T不好"，不要执着于"根深蒂固的上升趋势"。实事求是、因地制宜，下降趋势来了就做反T，即使月线级暴跌也不会仓位失控。</li>
+    <li><strong>概率思维：</strong>站在50%概率的中道，不偏执不执着。K线有骗线，但"某些位置我们的概率会占优"——这就是高胜率模式的意义。</li>
+    <li><strong>把大亏回避掉：</strong>炒股结果只有小亏、小赚、大亏、大赚四种。回避大亏，留下另外三种，你就是赢家。"<strong>炒股暴富是运气，长久复利才是本事</strong>。"</li>
+    <li><strong>等待忍耐：</strong>"连分钟级别都没耐心等的人，那应该是真的不适合炒股。"善于等待，专门等"天时地利人和"的机会，<strong>做一次胜过别人做很多次</strong>。</li>
+    <li><strong>专一专注：</strong>不要频繁换方法、换股票。"没有不好的股票，只有不好的操作。"先做好一只再说。</li>
+    <li><strong>降低预期：</strong>弱市时把差价预期设为多日平均振幅的 1/2 或 2/3。"一天做一点，不要想着一口吃成个胖子。"</li>
+    <li><strong>顺势而为（真正的含义）：</strong>"96均线下行，做空为主，不忘做多；96均线上行，做多为主，不忘做空。任何级别都可以。"</li>
+    <li><strong>生活观：</strong>股市上班就做T，股市下班/放假就学会"闲"。"见了便做，做了就放下。"不要让盘面影响心性。</li>
+  </ul>
+</section>
+
+<!-- ================= 八、可执行清单 ================= -->
+<section>
+  <h2>七、可执行清单（把上面全部压成一页）</h2>
+  <div class="flow">
+    <div class="step"><div class="dot">1</div><div class="body">
+      <div class="st">盘前：选票与设参</div>
+      <div class="sd">选月线底部、基本面稳、平均振幅&gt;3%的票，凑够8只分散行业。软件设好：均线 96/24/6，RSI 6，全周期统一。</div>
+    </div></div>
+    <div class="step"><div class="dot">2</div><div class="body">
+      <div class="st">盘前：定计划</div>
+      <div class="sd">标出次日支撑位与压力位，提前算好"预测交易法"的下影线买点、上影线卖点，提前挂单。看隔夜美股定基调。</div>
+    </div></div>
+    <div class="step"><div class="dot">3</div><div class="body">
+      <div class="st">开盘：判三重方向</div>
+      <div class="sd">判个股96均线（5分钟/15分钟）方向 → 判大盘、板块方向 → 看是否共振。共振看涨做正T，共振看跌做反T，不一致就观望。</div>
+    </div></div>
+    <div class="step"><div class="dot">4</div><div class="body">
+      <div class="st">盘中：等信号</div>
+      <div class="sd">96均线上行 + RSI(6)到20附近 + 底分型止跌缩量 → 正T买入；96均线下行 + RSI(6)到80附近 + 顶分型无量反弹 → 反T卖出。1份1份做，当天闭环。</div>
+    </div></div>
+    <div class="step"><div class="dot">5</div><div class="body">
+      <div class="st">高胜率窗口：重拳出击</div>
+      <div class="sd">大盘+板块+个股同频共振时，可多份出击。每周抓到一两次，成本下降就非常明显。</div>
+    </div></div>
+    <div class="step"><div class="dot">6</div><div class="body">
+      <div class="st">收盘：核对仓位</div>
+      <div class="sd">底仓股数与开盘一致（不增不减），差价落袋。做错了认错，绝不把T单变成隔夜补仓。</div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= 客观评述 ================= -->
+<section>
+  <h2>八、客观评述（供参考）</h2>
+  <div class="note amber">
+    <span class="t">这套体系的合理之处</span>
+    <ul style="margin-bottom:0;color:#7a5312;">
+      <li><strong>过滤噪声、化繁为简：</strong>只用一根均线 + 一个RSI就完成了"方向 + 买卖点"的闭环，可执行性强，避免了多指标互相打架。</li>
+      <li><strong>仓位纪律是真正的护城河：</strong>"5成底仓 + 5成机动 + 分批有序 + 当日闭环"这套规则，客观上限制了下行风险，比"满仓赌方向"稳健得多。</li>
+      <li><strong>顺势、不预测：</strong>与主流量化/趋势交易思想一致，长期具有正期望的基础。</li>
+    </ul>
+  </div>
+  <div class="note red">
+    <span class="t">需要警惕的地方</span>
+    <ul style="margin-bottom:0;color:#8a2318;">
+      <li><strong>"成本做到负数"在数学上需谨慎理解：</strong>严格说，频繁买卖的差价是<em>累计已实现收益</em>，摊薄的是"心理成本/摊余成本"，并不代表持股本身没有风险敞口。</li>
+      <li><strong>交易成本是隐形杀手：</strong>高频做T对手续费、印花税、滑点极其敏感。佣金未降到万1.5以下时，差价很容易被摩擦成本吃光。</li>
+      <li><strong>对盘感与执行力要求极高：</strong>他自己承认"反T需要眼疾手快""后期不存在手把手教学，只能看慧根"。散户照搬极易做反，变成"高吸低抛"反而抬高成本。</li>
+      <li><strong>存在幸存者偏差：</strong>其收益自述无法独立验证；日内级别的"高胜率"在不同市场环境下稳定性有限。</li>
+      <li><strong>不适合所有人：</strong>资金量过小、无时间盯盘、无法承受频繁交易心理压力的人，更适合放大级别做波段。</li>
+    </ul>
+  </div>
+  <p class="src" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+    <strong style="color:var(--ink);">风险提示：</strong>本报告仅为对博主公开内容的整理与转述，不构成任何投资建议。股市有风险，交易决策需建立在独立思考之上。
+  </p>
+</section>
+
+<!-- ================= 资料来源 ================= -->
+<section>
+  <h2>九、主要资料来源（今日头条 · 做T狂人）</h2>
+  <p class="src">
+    <strong>核心体系文章：</strong><br>
+    · 长短咸宜、多空通吃："132"交易法，毕生的追求！<br>
+    · 将做T进行到底（22）：利用走势漏洞做正T、反T的技术路径<br>
+    · 将做T进行到底（27）：分得清上下横，就能学会做T做差价做波段<br>
+    · 将做T进行到底（33）："T循环"理念！一个全新的交易世界<br>
+    · 做T做T，风生水起……（96均线+RSI(6)方法总述）<br>
+    · 做T干货：买在下影线、卖在上影线，稳赚差价！<br>
+    · 这样炒股，效果不错，屡试不爽！（"132"交易法要点）<br><br>
+    <strong>第三方整理（雪球/今日头条转述）：</strong><br>
+    · 雪球《做T狂人核心策略》《2个高胜率做T模式》<br>
+    · 今日头条《感觉这哥们做T很在行的》《做T狂人给我的启示》<br>
+    · 今日头条《2026年5月15日读做T狂人老师文章每日三省吾身》<br><br>
+    <strong>博主主页：</strong>
+    <a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAioFGxdK-m4uqDz8YLp5wteT2s6I3uuShe5WKAgDOckY/">https://www.toutiao.com/c/user/token/MS4wLjABAAAAioFGxdK-m4uqDz8YLp5wteT2s6I3uuShe5WKAgDOckY/</a>
+  </p>
+</section>
+
+<footer>
+  「做T狂人」做T策略总结 · 基于公开内容整理 · 2026-09-23<br>
+  本报告仅供学习研究，不构成投资建议
+</footer>
+
+</div>
+</body>
+</html>
