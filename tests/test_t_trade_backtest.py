@@ -26,10 +26,11 @@ def _bars(prices: list[float], start="2026-03-02") -> pd.DataFrame:
         afternoon = pd.date_range(f"{date_str} 13:05", periods=24, freq="5min")
         day_times = morning.append(afternoon)
         seg = p[d * 48:(d + 1) * 48]
+        day_vol = 2000.0 - 30.0 * np.arange(48)  # 日内递减：日内缩量语义成立
         frames.append(pd.DataFrame({
             "time": day_times, "open": seg, "high": seg + 0.001,
-            "low": seg - 0.001, "close": seg, "volume": 1000.0,
-            "amount": seg * 1000.0,
+            "low": seg - 0.001, "close": seg, "volume": day_vol,
+            "amount": seg * day_vol,
         }))
     return pd.concat(frames, ignore_index=True)
 

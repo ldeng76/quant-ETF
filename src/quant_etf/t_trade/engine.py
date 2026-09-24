@@ -207,10 +207,14 @@ class TtEngine:
 
         dir_trend = Trend.UP if up else Trend.DOWN
         if p.resonance:
-            if ctx.higher_trend is not None and not resonates(ctx.higher_trend, dir_trend):
-                return [], False
-            if ctx.higher_trend == dir_trend:
-                passed.append("resonance")
+            # "走势不一致→忍住不做"：仅高级别方向相反时拦；横盘为中性放行，
+            # 完全同向才计共振标签（并触发重拳份数）
+            if ctx.higher_trend is not None:
+                opposite = Trend.DOWN if dir_trend == Trend.UP else Trend.UP
+                if ctx.higher_trend == opposite:
+                    return [], False
+                if ctx.higher_trend == dir_trend:
+                    passed.append("resonance")
         if p.index_filter:
             if ctx.index_trend is not None and not index_permits(ctx.index_trend, dir_trend):
                 return [], False

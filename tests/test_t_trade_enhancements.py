@@ -70,10 +70,16 @@ class TestResonanceGate:
         d = e.on_bar(ctx(rsi=15.0, higher_trend=Trend.UP))
         assert d.action == TtAction.OPEN_T
 
-    def test_sideways_higher_blocks_forward_t(self):
-        # 纵向共振要求同向：高级别横盘不放行上行方向
+    def test_sideways_higher_is_neutral(self):
+        # "走势不一致→不做"仅指方向相反；高级别横盘是中性，放行但不计共振
         e = engine()
         d = e.on_bar(ctx(rsi=15.0, higher_trend=Trend.SIDEWAYS))
+        assert d.action == TtAction.OPEN_T
+        assert "resonance" not in d.reason
+
+    def test_opposite_higher_blocks(self):
+        e = engine()
+        d = e.on_bar(ctx(rsi=15.0, higher_trend=Trend.DOWN))
         assert d.action == TtAction.NONE
 
     def test_none_higher_trend_fails_open(self):

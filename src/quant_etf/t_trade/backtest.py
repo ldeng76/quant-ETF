@@ -13,7 +13,10 @@ import pandas as pd
 from .account import SubAccount, TOrderRejected
 from .classifier import classify_trend
 from .engine import BarContext, TtAction, TtEngine
-from .indicators import ma, rsi
+from .indicators import (
+    bottom_fractal, lower_shadow_rejection, ma, rsi,
+    top_fractal, upper_shadow_rejection,
+)
 from .params import TTradeParams
 
 
@@ -32,6 +35,34 @@ def load_pool_bars(
     return out
 
 
+def resample_intraday(df5: pd.DataFrame, rule: str = "15min") -> pd.DataFrame:
+    """5m 线聚合为更高周期（纵向共振用），按 bar 收盘时间对齐。"""
+    s = df5.set_index("time")
+    agg = s.resample(rule, label="right", closed="right").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last",
+         "volume": "sum"}
+    ).dropna(subset=["close"])
+    return agg
+
+
+def _align_trend(trend_hi: pd.Series, times: pd.Series) -> list:
+    """高级别趋势前向对齐到 5m 时间线；不可得处为 None（门控放行）。"""
+    aligned = trend_hi.reindex(pd.DatetimeIndex(times), method="ffill")
+    return [None if pd.isna(v) else v for v in aligned]
+
+
+def higher_trend_series(df5: pd.DataFrame, params: TTradeParams,
+                        rule: str = "15min") -> pd.Series:
+    """高级别三分类序列（按收盘时间索引，供 5m 时间线前向对齐）。
+
+    15m bar 收盘时点起其分类可被同刻或之后的 5m bar 消费——无前视。
+    """
+    hi = resample_intraday(df5, rule)
+    ma_hi = ma(hi["close"].astype(float), params.ma_len)
+    return classify_trend(ma_hi, slope_bars=params.slope_n,
+                          threshold=params.slope_th)
+
+
 @dataclass
 class SymbolFrames:
     """单标的预计算好的指标序列（与 5m bars 逐行对齐）。"""
@@ -44,6 +75,12 @@ class SymbolFrames:
     rsi: pd.Series
     trend: pd.Series
     day_range: pd.Series  # 当日截至当前bar的已实现振幅（相对昨收）
+    ma: pd.Series
+    fractal_buy: pd.Series  # bool：底分型（近3bar）或下影线企稳
+    fractal_sell: pd.Series  # bool：顶分型（近3bar）或上影线承压
+    vol_shrink: pd.Series  # bool：量能收缩
+    dev_above: pd.Series  # bool：价格高于 MA×(1+dev_th)
+    dev_below: pd.Series  # bool：价格低于 MA×(1−dev_th)
 
 
 def compute_frames(df5: pd.DataFrame, params: TTradeParams) -> SymbolFrames:
@@ -61,10 +98,28 @@ def compute_frames(df5: pd.DataFrame, params: TTradeParams) -> SymbolFrames:
     intraday_low = df5["low"].astype(float).groupby(day).cummin()
     day_range = (intraday_high - intraday_low) / prev_day_close
 
+    # 增强开关判定材料
+    o = df5["open"].astype(float)
+    h = df5["high"].astype(float)
+    low_ = df5["low"].astype(float)
+    vol = df5["volume"].astype(float)
+    fractal_buy = (
+        bottom_fractal(h, low_).rolling(3, min_periods=1).max().astype(bool)
+        | lower_shadow_rejection(o, h, low_, close)
+    )
+    fractal_sell = (
+        top_fractal(h, low_).rolling(3, min_periods=1).max().astype(bool)
+        | upper_shadow_rejection(o, h, low_, close)
+    )
+    vol_shrink = vol < vol.shift(2)
+    dev_above = close > ma_s * (1.0 + params.dev_th)
+    dev_below = close < ma_s * (1.0 - params.dev_th)
+
     return SymbolFrames(
-        time=df5["time"], open=df5["open"].astype(float),
-        high=df5["high"].astype(float), low=df5["low"].astype(float),
+        time=df5["time"], open=o, high=h, low=low_,
         close=close, rsi=rsi_s, trend=trend, day_range=day_range,
+        ma=ma_s, fractal_buy=fractal_buy, fractal_sell=fractal_sell,
+        vol_shrink=vol_shrink, dev_above=dev_above, dev_below=dev_below,
     )
 
 
@@ -88,6 +143,7 @@ def run_backtest(
     bars: dict[str, pd.DataFrame],
     params: TTradeParams | None = None,
     total_cash: float = 1_000_000.0,
+    index_bars: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """核心回测循环：每标的独立等权子账户，逐bar决策、次bar开盘成交。"""
     params = params or TTradeParams()
@@ -97,11 +153,53 @@ def run_backtest(
     bh_paths: dict[str, pd.Series] = {}
     active_codes: list[str] = []
 
+    index_trend_hi = None
+    if index_bars is not None and len(index_bars):
+        index_frames = compute_frames(index_bars, params)
+        index_trend_hi = pd.Series(
+            index_frames.trend.values, index=pd.DatetimeIndex(index_frames.time)
+        )
+
+    # 振幅过滤的池内分位数复评：个股口径阈值在 ETF 池上常不可达，
+    # 用池内 60 分位日均振幅封顶，避免全池被 3%式阈值一刀切停手
+    amp_floor = params.amp_min
+    if params.amp_filter:
+        amps = []
+        for df in bars.values():
+            day = df["time"].dt.date
+            d_hi = df["high"].astype(float).groupby(day).max()
+            d_low = df["low"].astype(float).groupby(day).min()
+            d_close = df["close"].astype(float).groupby(day).last()
+            amps.append(float(((d_hi - d_low) / d_close.shift(1)).dropna().mean()))
+        if amps:
+            pool_p60 = float(pd.Series(amps).quantile(0.6))
+            amp_floor = min(params.amp_min, pool_p60)
+
     for code in codes:
         df = bars.get(code)
         if df is None or len(df) < params.ma_len + params.slope_n + params.rsi_len:
             continue
         frames = compute_frames(df, params)
+        hi_trend = higher_trend_series(df, params)
+        hi_aligned = _align_trend(hi_trend, frames.time)
+        idx_aligned = (
+            _align_trend(index_trend_hi, frames.time)
+            if index_trend_hi is not None else None
+        )
+        # 池内校准后的标的级振幅门槛（amp_filter 开启时）
+        if params.amp_filter:
+            day = df["time"].dt.date
+            d_hi = df["high"].astype(float).groupby(day).max()
+            d_low = df["low"].astype(float).groupby(day).min()
+            d_close = df["close"].astype(float).groupby(day).last()
+            code_amp = float(((d_hi - d_low) / d_close.shift(1)).dropna().mean())
+            if code_amp < amp_floor:
+                from loguru import logger
+
+                logger.warning(
+                    f"backtest: {code} 跳过（日均振幅 {code_amp:.2%} < 门槛 {amp_floor:.2%}）"
+                )
+                continue
         acc = SubAccount(
             total_cash=per_code_cash,
             commission_rate=params.commission_rate,
@@ -152,6 +250,13 @@ def run_backtest(
                 primary_trend=frames.trend.iloc[i],
                 available_to_sell=acc.available_to_sell,
                 day_amp_ok=day_amp_ok,
+                fractal_buy_ok=bool(frames.fractal_buy.iloc[i]),
+                fractal_sell_ok=bool(frames.fractal_sell.iloc[i]),
+                volume_shrink_ok=bool(frames.vol_shrink.iloc[i]),
+                higher_trend=hi_aligned[i],
+                index_trend=idx_aligned[i] if idx_aligned is not None else None,
+                dev_above_ma=bool(frames.dev_above.iloc[i]),
+                dev_below_ma=bool(frames.dev_below.iloc[i]),
             )
             decision = engine_.on_bar(ctx)
             is_day_end = (i == n - 1) or (days[i + 1] != days[i])
