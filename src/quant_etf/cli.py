@@ -563,7 +563,43 @@ def build_parser():
     p.add_argument("--depth", action="store_true", help="审计历史深度（做T回测 M0）并落盘报告")
     p.add_argument("--report", type=str, help="深度审计报告输出路径")
 
+    p = sub.add_parser("t-backtest", help="做T策略回测（核心层端到端）")
+    p.add_argument("--codes", type=str, help="逗号分隔的标的代码 (默认: ETF池)")
+    p.add_argument("--start", type=str, default=None, help="起始日期 YYYY-MM-DD")
+    p.add_argument("--end", type=str, default=None, help="结束日期 YYYY-MM-DD")
+    p.add_argument("--cash", type=float, default=1_000_000.0, help="总资金 (默认 100万)")
+    p.add_argument("--params", type=str, help="参数文件 JSON (默认用内置默认参数)")
+    p.add_argument("--outdir", type=str, default=None, help="产物输出目录")
+
     return parser
+
+
+def cmd_t_backtest(args):
+    from pathlib import Path as _Path
+    from datetime import date as _date
+    from loguru import logger
+    from quant_etf.conf import ETF_POOL
+    from quant_etf.t_trade.backtest import (
+        load_pool_bars, run_backtest, write_outputs,
+    )
+    from quant_etf.t_trade.params import TTradeParams
+
+    codes = args.codes.split(",") if args.codes else list(dict.fromkeys(ETF_POOL))
+    params = TTradeParams.from_json(Path(args.params).read_text(encoding="utf-8")) if args.params else TTradeParams()
+
+    logger.info(f"t-backtest: {len(codes)} 标的, {args.start} → {args.end}")
+    bars = load_pool_bars(codes, start=args.start, end=args.end)
+    if not bars:
+        logger.error("无可用分钟数据")
+        return
+    result = run_backtest(codes, bars, params, total_cash=args.cash)
+
+    outdir = _Path(args.outdir) if args.outdir else (
+        _Path("data/results") / _date.today().isoformat() / "t_trade" / "backtest"
+    )
+    paths = write_outputs(result, params, outdir)
+    print(paths["summary"].read_text(encoding="utf-8"))
+    logger.info(f"产物: {outdir}")
 
 
 def cmd_backfill_stock_names(args):
@@ -788,6 +824,7 @@ COMMANDS = {
     "backfill-missing": cmd_backfill_missing,
     "minute-fill": cmd_minute_fill,
     "minute-audit": cmd_minute_audit,
+    "t-backtest": cmd_t_backtest,
     "scheduler": cmd_scheduler,
 }
 

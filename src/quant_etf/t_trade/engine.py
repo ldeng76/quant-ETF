@@ -44,6 +44,7 @@ class BarContext:
     rsi: float
     primary_trend: Trend
     available_to_sell: int  # 账户 T+1 可卖量快照
+    day_amp_ok: bool = True  # 当日已实现振幅达标（amp_dead 门，做T"没振幅不做"）
 
 
 @dataclass(frozen=True)
@@ -87,14 +88,24 @@ class TtEngine:
 
         if self.state == TtState.LEG2_PENDING:
             if self.params.strict_eod and is_eod:
-                return EngineDecision(TtAction.FORCE_CLOSE, reason="eod_force")
+                return EngineDecision(
+                    TtAction.FORCE_CLOSE,
+                    direction=self._pending_direction,
+                    reason="eod_force",
+                )
             if self._exit_signal(ctx):
-                return EngineDecision(TtAction.CLOSE_T, reason="exit_signal")
+                return EngineDecision(
+                    TtAction.CLOSE_T,
+                    direction=self._pending_direction,
+                    reason="exit_signal",
+                )
             return _NONE
 
         # IDLE：入场判定
         if self.params.strict_eod and is_eod:
             return _NONE  # 尾盘不开新T单——当日闭环无法保证
+        if not ctx.day_amp_ok:
+            return _NONE  # 当日振幅不足，差价覆盖不了摩擦成本，停手
         if self._trades_today >= self.params.max_trades_per_day:
             return _NONE
         direction = self._entry_direction(ctx)
