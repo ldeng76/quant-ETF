@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from quant_etf.t_trade.classifier import Trend
+from quant_etf.t_trade.classifier import Direction, Trend
 from quant_etf.t_trade.engine import BarContext, TtAction, TtState, TtEngine
 from quant_etf.t_trade.params import TTradeParams
 
@@ -20,19 +20,20 @@ def ctx(rsi=50.0, trend=Trend.UP, price=10.0, available=100_000,
     )
 
 
-def engine() -> TtEngine:
-    return TtEngine(params=PARAMS, unit_cash=5_000.0)
+def engine(unit_cash=5_000.0, **param_overrides) -> TtEngine:
+    return TtEngine(params=TTradeParams(**param_overrides), unit_cash=unit_cash)
 
 
 class TestForwardTFlow:
-    def test_entry_signal_opens_forward_t(self):
+    def test_entry_signal_submits_forward_t(self):
         e = engine()
         d = e.on_bar(ctx(rsi=15.0, trend=Trend.UP))
         assert d.action == TtAction.OPEN_T
-        assert d.direction == "up"
+        assert d.direction == Direction.FORWARD
         assert d.units == 1
-        assert d.shares == 500  # unit_cash 5000 / 10.0 = 500 股
-        assert e.state == TtState.LEG1_OPEN
+        # 含滑点口径：5000 / (10 × 1.0005) = 499.75 → 400 股
+        assert d.shares == 400
+        assert e.state == TtState.LEG1_SUBMITTED
 
     def test_after_open_fill_waits_for_exit_signal(self):
         e = engine()
@@ -52,7 +53,7 @@ class TestForwardTFlow:
         e = engine()
         d = e.on_bar(ctx(rsi=85.0, trend=Trend.DOWN))
         assert d.action == TtAction.OPEN_T
-        assert d.direction == "down"
+        assert d.direction == Direction.REVERSE
 
 
 class TestEntryGuards:
@@ -92,7 +93,7 @@ class TestEntryGuards:
         assert d.action == TtAction.NONE
 
 
-class TestEodForceClose:
+class TestEodClosure:
     def test_force_close_at_eod_time(self):
         e = engine()
         e.on_bar(ctx(rsi=15.0, trend=Trend.UP))
@@ -106,6 +107,52 @@ class TestEodForceClose:
         d = e.on_bar(ctx(rsi=50.0, trend=Trend.UP,
                          t=datetime(2026, 9, 24, 14, 56)))
         assert d.action == TtAction.NONE
+
+    def test_no_new_entry_after_eod(self):
+        # 14:55 后不许开新 T 单——当日闭环无法保证
+        e = engine()
+        d = e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                         t=datetime(2026, 9, 24, 14, 56)))
+        assert d.action == TtAction.NONE
+
+    def test_force_close_when_leg1_unconfirmed_at_eod(self):
+        # 开仓腿决策后成交确认丢失 → EOD 仍须发出强平，由编排方核对账户
+        e = engine()
+        e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                     t=datetime(2026, 9, 24, 14, 50)))
+        assert e.state == TtState.LEG1_SUBMITTED
+        d = e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                         t=datetime(2026, 9, 24, 14, 55)))
+        assert d.action == TtAction.FORCE_CLOSE
+
+    def test_resolve_stale_order_resets_to_idle(self):
+        e = engine()
+        e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                     t=datetime(2026, 9, 24, 14, 50)))
+        e.resolve_stale_order()
+        assert e.state == TtState.IDLE
+
+    def test_loose_mode_allows_overnight(self):
+        # strict_eod=False：EOD 不强平、尾盘仍可开仓（隔夜T单对照实验）
+        e = engine(strict_eod=False)
+        e.on_bar(ctx(rsi=15.0, trend=Trend.UP))
+        e.on_fill_leg()
+        d = e.on_bar(ctx(rsi=50.0, trend=Trend.UP,
+                         t=datetime(2026, 9, 24, 14, 55)))
+        assert d.action == TtAction.NONE
+        d2 = engine(strict_eod=False).on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                                                 t=datetime(2026, 9, 24, 14, 56)))
+        assert d2.action == TtAction.OPEN_T
+
+    def test_stale_leg1_resets_on_day_rollover(self):
+        # 严格模式下跨日的 LEG1_SUBMITTED 是死单，自动复位后可正常开仓
+        e = engine()
+        e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                     t=datetime(2026, 9, 24, 14, 50)))
+        assert e.state == TtState.LEG1_SUBMITTED
+        d = e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
+                         t=datetime(2026, 9, 25, 9, 40)))
+        assert d.action == TtAction.OPEN_T  # 复位成功才可能再次开仓
 
 
 class TestDailyLimit:

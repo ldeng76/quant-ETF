@@ -18,6 +18,17 @@ class Trend(Enum):
     UNKNOWN = "unknown"
 
 
+class Direction(Enum):
+    """T 单方向：正T（先买后卖）/ 反T（先卖后买）。"""
+
+    FORWARD = "up"  # 正T
+    REVERSE = "down"  # 反T
+
+    @property
+    def label(self) -> str:
+        return "正T" if self == Direction.FORWARD else "反T"
+
+
 def classify_trend(ma: pd.Series, slope_bars: int = 8, threshold: float = 0.001) -> pd.Series:
     """按 MA 斜率做三完全分类：slope=(MA_t − MA_{t−n}) / MA_{t−n}。
 
