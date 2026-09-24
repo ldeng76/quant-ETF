@@ -268,7 +268,15 @@ class TtEngine:
         if day != self._current_day:
             self._current_day = day
             self._trades_today = 0
-            # 跨日死单清理：严格闭环模式下不允许隔夜挂单；
-            # 宽松模式（strict_eod=False）下 LEG1_SUBMITTED 顺延到次日成交
-            if self.params.strict_eod and self.state == TtState.LEG1_SUBMITTED:
-                self.resolve_stale_order()
+            # 跨日死单清理：严格闭环模式不允许隔夜挂单或持仓。
+            # LEG1_SUBMITTED（开仓腿未成交）+ LEG2_PENDING（对冲腿未触发）
+            # 都视为"永不到来的成交"，不能带过夜、撞上底仓铁律。
+            if self.params.strict_eod:
+                if self.state == TtState.LEG1_SUBMITTED:
+                    self.resolve_stale_order()
+                elif self.state == TtState.LEG2_PENDING:
+                    # 对冲腿未触发但在次日开bar前发现 → 视作当日强平已确认
+                    # （执行方已从账户的 pending_t_shares 状态复位底仓）
+                    self._trades_today += 1
+                    self._pending_direction = None
+                    self.state = TtState.IDLE

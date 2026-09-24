@@ -245,6 +245,11 @@ def run_backtest(
 
         for i in range(n):
             if i == 0 or days[i] != days[i - 1]:
+                # 跨日：引擎层的 LEG2_PENDING 死单清理触发前，账户层先把未对冲腿强平
+                # 复位底仓（执行器已失败/无次bar可成交的场景）—— 严格闭环不允许隔夜挂单
+                if i != 0 and acc.pending_t_shares is not None:
+                    prev_close = float(frames.close.iloc[i - 1])
+                    acc.force_close_stale(prev_close)
                 acc.on_day_start()
 
             # ---- 执行上一bar产生的委托（本bar开盘价）----

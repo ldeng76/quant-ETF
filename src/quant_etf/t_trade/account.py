@@ -191,6 +191,15 @@ class SubAccount:
             return 0.0
         return self.diluted_cost_total / self.base_shares
 
+    def force_close_stale(self, ref_price: float) -> tuple[Fill, float] | None:
+        """死单强制对冲（跨日兜底）：先正常路径，现金不足透支成交。"""
+        if self._pending_t_shares is None:
+            return None
+        try:
+            return self.close_t(price=ref_price, force=False)
+        except TOrderRejected:
+            return self.close_t(price=ref_price, force=True)
+
     # ---- 日切 ----
 
     def on_day_start(self) -> None:
