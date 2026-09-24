@@ -34,14 +34,17 @@ def _bars(prices: list[float], start="2026-03-02") -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def _sideways_with_dip() -> list[float]:
-    """箱体：200 根平价暖机（RSI≈50、斜率≈0），日内急跌 12 根（RSI→超卖）
-    再 12 根收回——横盘趋势许可正T，急跌处触发买入。"""
-    base = [10.0] * 200
-    dip = [10.0 - 0.08 * (i + 1) for i in range(12)]      # 10.0 → 9.04
-    recover = [9.04 + 0.08 * (i + 1) for i in range(12)]  # 回到 10.0
-    tail = [10.0] * 40
-    return base + dip + recover + tail
+def _sideways_with_dip_and_spike() -> list[float]:
+    """箱体（双向）：200 根平价暖机；急跌→收回触发正T；急拉→回落触发反T。
+    横盘趋势下两个方向都被许可。"""
+    base = [10.0] * 192
+    dip = [10.0 - 0.08 * (i + 1) for i in range(12)]       # 正T入场
+    recover = [9.04 + 0.08 * (i + 1) for i in range(12)]
+    gap = [10.0] * 24
+    spike = [10.0 + 0.08 * (i + 1) for i in range(12)]     # 反T入场（RSI→超买）
+    drop = [10.96 - 0.08 * (i + 1) for i in range(12)]
+    tail = [10.0] * 36
+    return base + dip + recover + gap + spike + drop + tail
 
 
 def _uptrend_with_dip() -> list[float]:
@@ -59,11 +62,13 @@ def _flat() -> list[float]:
 
 
 class TestSyntheticSmoke:
-    def test_sidewise_box_generates_t_trades(self):
-        bars = _bars(_sideways_with_dip())
+    def test_sidewise_box_generates_both_directions(self):
+        bars = _bars(_sideways_with_dip_and_spike())
         result = run_backtest(["TEST"], {"TEST": bars}, PARAMS, total_cash=100_000.0)
         closed = [t for t in result.trades if np.isfinite(t.get("profit", np.nan))]
+        directions = {t["direction"] for t in closed}
         assert len(closed) >= 1, f"箱体应产生T单，实际 {result.trades}"
+        assert directions >= {"正T", "反T"}, f"箱体应双向T，实际 {directions}"
 
     def test_uptrend_only_forward_t(self):
         bars = _bars(_uptrend_with_dip())
@@ -82,10 +87,19 @@ class TestSyntheticSmoke:
         assert result.final_equity == pytest.approx(result.final_bh_equity)
 
     def test_outputs_complete(self, tmp_path):
-        bars = _bars(_sideways_with_dip())
+        bars = _bars(_sideways_with_dip_and_spike())
         result = run_backtest(["TEST"], {"TEST": bars}, PARAMS, total_cash=100_000.0)
         paths = write_outputs(result, PARAMS, tmp_path)
         for name in ("trades", "equity", "summary", "params"):
             assert name in paths and paths[name].exists()
         summary = paths["summary"].read_text(encoding="utf-8")
         assert "样本区间" in summary and "做T vs 纯持有" in summary
+        assert "平均差价" in summary
+
+    def test_same_params_rerun_identical(self):
+        bars = _bars(_sideways_with_dip_and_spike())
+        r1 = run_backtest(["TEST"], {"TEST": bars}, PARAMS, total_cash=100_000.0)
+        r2 = run_backtest(["TEST"], {"TEST": bars}, PARAMS, total_cash=100_000.0)
+        assert r1.trades == r2.trades
+        assert r1.final_equity == r2.final_equity
+        assert r1.total_profit == r2.total_profit

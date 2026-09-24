@@ -17,8 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
-
-from .classifier import Direction, Trend
+from .classifier import Direction, Trend, index_permits, resonates
 from .params import TTradeParams
 
 
@@ -37,7 +36,11 @@ class TtAction(Enum):
 
 @dataclass(frozen=True)
 class BarContext:
-    """单根 bar 的决策输入快照。"""
+    """单根 bar 的决策输入快照。
+
+    增强开关的判定材料由编排方预计算注入；值为 None 表示该信号不可算
+    （暖机期/数据缺失），对应门控放行、不阻断交易。
+    """
 
     bar_time: datetime  # bar 收盘时间
     close: float
@@ -45,6 +48,21 @@ class BarContext:
     primary_trend: Trend
     available_to_sell: int  # 账户 T+1 可卖量快照
     day_amp_ok: bool = True  # 当日已实现振幅达标（amp_dead 门，做T"没振幅不做"）
+    # ---- 增强开关判定材料（默认值=放行）----
+    fractal_buy_ok: bool = True  # 底分型（近3bar内确认）或下影线企稳
+    fractal_sell_ok: bool = True  # 顶分型或上影线承压
+    volume_shrink_ok: bool = True  # 量能收缩（当前bar < 2bar前）
+    higher_trend: Optional[Trend] = None  # 高级别（15m/60m）三分类
+    index_trend: Optional[Trend] = None  # 大盘（沪深300 主级别）三分类
+    in_buy_window: bool = True  # 处于买入时段 09:35–11:00
+    in_sell_window: bool = True  # 处于卖出偏好时段 13:30–14:30
+    dev_above_ma: bool = False  # 价格高于 MA96 超 dev_th（正T对冲附加触发）
+    dev_below_ma: bool = False  # 价格低于 MA96 超 dev_th（反T对冲附加触发）
+
+
+def _in_window(t: time, window: tuple[str, str]) -> bool:
+    lo, hi = (time.fromisoformat(x) for x in window)
+    return lo <= t <= hi
 
 
 @dataclass(frozen=True)
@@ -111,7 +129,10 @@ class TtEngine:
         direction = self._entry_direction(ctx)
         if direction is None:
             return _NONE
-        units = self.params.units_per_trade
+        gates, ok = self._entry_gates(ctx, direction)
+        if not ok:
+            return _NONE
+        units = self._units_for(ctx, direction)
         shares = self._planned_shares(ctx.close, units)
         if shares < self.params.lot_size or shares > ctx.available_to_sell:
             return _NONE
@@ -119,7 +140,7 @@ class TtEngine:
         self._pending_direction = direction
         return EngineDecision(
             TtAction.OPEN_T, direction=direction, units=units, shares=shares,
-            reason="core_entry",
+            reason="entry:" + "+".join(gates),
         )
 
     # ---- 成交确认（由编排方在执行成交后调用）----
@@ -142,22 +163,87 @@ class TtEngine:
     # ---- 内部 ----
 
     def _entry_direction(self, ctx: BarContext) -> Optional[Direction]:
+        """方向许可（三完全分类）+ RSI 触发；allow_offside_t 开启逆势T。"""
         p = self.params
         t = ctx.primary_trend
         if t == Trend.UNKNOWN:
             return None
-        if t in (Trend.UP, Trend.SIDEWAYS) and ctx.rsi <= p.rsi_buy_th:
+        fwd_ok = t in (Trend.UP, Trend.SIDEWAYS) or (
+            p.allow_offside_t and t == Trend.DOWN
+        )
+        rev_ok = t in (Trend.DOWN, Trend.SIDEWAYS) or (
+            p.allow_offside_t and t == Trend.UP
+        )
+        if fwd_ok and ctx.rsi <= p.rsi_buy_th:
             return Direction.FORWARD
-        if t in (Trend.DOWN, Trend.SIDEWAYS) and ctx.rsi >= p.rsi_sell_th:
+        if rev_ok and ctx.rsi >= p.rsi_sell_th:
             return Direction.REVERSE
         return None
+
+    def _entry_gates(self, ctx: BarContext, direction: Direction) -> tuple[list[str], bool]:
+        """增强开关门控（默认全开）。返回 (通过的判定标签, 是否全部放行)。"""
+        p = self.params
+        passed: list[str] = []
+        up = direction == Direction.FORWARD
+
+        if up:
+            if p.confirm_fractal and not ctx.fractal_buy_ok:
+                return [], False
+            if p.confirm_fractal:
+                passed.append("fractal")
+            if p.confirm_volume and not ctx.volume_shrink_ok:
+                return [], False
+            if p.confirm_volume:
+                passed.append("volume")
+        else:
+            if p.confirm_fractal and not ctx.fractal_sell_ok:
+                return [], False
+            if p.confirm_fractal:
+                passed.append("fractal")
+            if p.confirm_volume and not ctx.volume_shrink_ok:
+                return [], False
+            if p.confirm_volume:
+                passed.append("volume")
+
+        dir_trend = Trend.UP if up else Trend.DOWN
+        if p.resonance:
+            if ctx.higher_trend is not None and not resonates(ctx.higher_trend, dir_trend):
+                return [], False
+            if ctx.higher_trend == dir_trend:
+                passed.append("resonance")
+        if p.index_filter:
+            if ctx.index_trend is not None and not index_permits(ctx.index_trend, dir_trend):
+                return [], False
+            if ctx.index_trend == dir_trend:
+                passed.append("index")
+        if p.time_window:
+            in_window = _in_window(
+                ctx.bar_time.time(), p.buy_window if up else p.sell_window
+            )
+            if not in_window:
+                return [], False
+            passed.append("window")
+        return passed, True
+
+    def _units_for(self, ctx: BarContext, direction: Direction) -> int:
+        """共振窗口（主级别+高级别+大盘三者同向）→ 重拳出击多份。"""
+        p = self.params
+        dir_trend = Trend.UP if direction == Direction.FORWARD else Trend.DOWN
+        if (
+            p.resonance
+            and ctx.primary_trend == dir_trend
+            and ctx.higher_trend == dir_trend
+            and ctx.index_trend == dir_trend
+        ):
+            return p.resonance_units
+        return p.units_per_trade
 
     def _exit_signal(self, ctx: BarContext) -> bool:
         p = self.params
         if self._pending_direction == Direction.FORWARD:
-            return ctx.rsi >= p.rsi_sell_th
+            return ctx.rsi >= p.rsi_sell_th or (p.dev_th > 0 and ctx.dev_above_ma)
         if self._pending_direction == Direction.REVERSE:
-            return ctx.rsi <= p.rsi_buy_th
+            return ctx.rsi <= p.rsi_buy_th or (p.dev_th > 0 and ctx.dev_below_ma)
         return False
 
     def _planned_shares(self, price: float, units: int) -> int:

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .account import SubAccount, TOrderRejected
-from .classifier import Direction, classify_trend
+from .classifier import classify_trend
 from .engine import BarContext, TtAction, TtEngine
 from .indicators import ma, rsi
 from .params import TTradeParams
@@ -71,6 +71,7 @@ def compute_frames(df5: pd.DataFrame, params: TTradeParams) -> SymbolFrames:
 @dataclass
 class BacktestResult:
     codes: list[str]
+    total_cash: float = 0.0
     start: str = ""
     end: str = ""
     trades: list[dict] = field(default_factory=list)
@@ -91,9 +92,10 @@ def run_backtest(
     """核心回测循环：每标的独立等权子账户，逐bar决策、次bar开盘成交。"""
     params = params or TTradeParams()
     per_code_cash = total_cash / len(codes)
-    result = BacktestResult(codes=codes)
+    result = BacktestResult(codes=[], total_cash=total_cash)
     equity_paths: dict[str, pd.Series] = {}
     bh_paths: dict[str, pd.Series] = {}
+    active_codes: list[str] = []
 
     for code in codes:
         df = bars.get(code)
@@ -108,28 +110,24 @@ def run_backtest(
             lot_size=params.lot_size,
         )
         engine_ = TtEngine(params=params, unit_cash=acc.unit_cash)
+        executor = _Executor(code=code, result=result, acc=acc, engine_=engine_)
 
         # 期初建满底仓（第一根 bar 开盘价）；纯持有基准用同一底仓 + 残余现金
         try:
-            acc.open_base_position(price=float(frames.open.iloc[0]))
+            base_fill = acc.open_base_position(price=float(frames.open.iloc[0]))
         except TOrderRejected as e:
             # 等权资金买不满一手（高价标的）或首bar数据异常 → 跳过该标的
             from loguru import logger
 
             logger.warning(f"backtest: {code} 跳过（{e}）")
             continue
-        bh_cash = per_code_cash - (
-            acc.base_shares * float(frames.open.iloc[0]) * (1.0 + params.slippage)
-            + max(
-                acc.base_shares * float(frames.open.iloc[0]) * params.commission_rate,
-                params.min_commission,
-            )
-        )
+        active_codes.append(code)
+        bh_cash = per_code_cash - (base_fill.shares * base_fill.price + base_fill.commission)
 
         days = frames.time.dt.date.values
         n = len(frames.time)
         pending: dict | None = None
-        open_leg: dict | None = None  # 在场T单的开仓腿记录，对冲后合成一行T单
+        eq_rows: list[tuple] = []  # (date, 做T净值, 纯持有净值)——日终实点，无前视
 
         for i in range(n):
             if i == 0 or days[i] != days[i - 1]:
@@ -137,49 +135,69 @@ def run_backtest(
 
             # ---- 执行上一bar产生的委托（本bar开盘价）----
             if pending is not None:
-                open_leg = _execute(
-                    pending, code, float(frames.open.iloc[i]),
-                    str(frames.time.iloc[i]), result, acc, engine_, open_leg,
-                )
+                executor.execute(pending, float(frames.open.iloc[i]),
+                                 str(frames.time.iloc[i]))
                 pending = None
 
             # ---- 本bar收盘：产生决策 ----
-            rng = frames.day_range.iloc[i]
+            amp_frac = frames.day_range.iloc[i]
+            day_amp_ok = (
+                bool(amp_frac >= params.amp_dead)
+                if np.isfinite(amp_frac) else False
+            ) if params.amp_filter else True
             ctx = BarContext(
                 bar_time=frames.time.iloc[i].to_pydatetime(),
                 close=float(frames.close.iloc[i]),
                 rsi=float(frames.rsi.iloc[i]),
                 primary_trend=frames.trend.iloc[i],
                 available_to_sell=acc.available_to_sell,
-                day_amp_ok=bool(rng >= params.amp_dead) if np.isfinite(rng) else False,
+                day_amp_ok=day_amp_ok,
             )
             decision = engine_.on_bar(ctx)
-            if decision.action != TtAction.NONE and i + 1 < n and days[i + 1] == days[i]:
-                pending = {
-                    "action": decision.action,
-                    "direction": decision.direction,
-                    "shares": decision.shares,
-                    "signal_time": str(frames.time.iloc[i]),
-                    "reason": decision.reason,
-                }
-
-            # ---- 日终对账：等量铁律（底仓股数恒等于期初）----
             is_day_end = (i == n - 1) or (days[i + 1] != days[i])
+
+            if decision.action != TtAction.NONE:
+                if i + 1 < n and days[i + 1] == days[i]:
+                    pending = {
+                        "action": decision.action,
+                        "direction": decision.direction,
+                        "shares": decision.shares,
+                        "signal_time": str(frames.time.iloc[i]),
+                        "reason": decision.reason,
+                    }
+                elif is_day_end and decision.action != TtAction.OPEN_T:
+                    # 数据缺口：日末无次bar可执行——对冲类委托按当bar收盘应急成交
+                    executor.execute(decision.__dict__, float(frames.close.iloc[i]),
+                                     str(frames.time.iloc[i]))
+                # 开仓类跨日委托直接丢弃（严格闭环模式不该出现；宽松模式由隔夜语义覆盖）
+
+            # ---- 日终对账与净值实点 ----
             if is_day_end:
                 assert acc.base_intact(), (
                     f"{code} 日终底仓对账失败: held={acc.shares_held} "
                     f"base={acc.base_shares} (bar {frames.time.iloc[i]})"
                 )
+                day_close = float(frames.close.iloc[i])
+                eq_rows.append((
+                    days[i],
+                    acc.cash + acc.shares_held * day_close,
+                    bh_cash + acc.base_shares * day_close,
+                ))
 
         if acc.pending_t_shares is not None:
             result.trades.append({
                 "code": code, "direction": "未闭环", "profit": np.nan,
                 "note": "数据结束仍有未平T单（不应在严格闭环模式下发生）",
-                **({"leg1_time": open_leg["leg1_time"]} if open_leg else {}),
+                **({"leg1_time": executor.open_leg["leg1_time"]}
+                   if executor.open_leg else {}),
             })
 
-        equity_paths[code] = _daily_equity(acc, df)
-        bh_paths[code] = _daily_bh(acc, bh_cash, df)
+        eq_dates = [pd.Timestamp(d) for d, _, _ in eq_rows]
+        equity_paths[code] = pd.Series(
+            [e for _, e, _ in eq_rows], index=eq_dates)
+        bh_paths[code] = pd.Series(
+            [b for _, _, b in eq_rows], index=eq_dates)
+    result.codes = active_codes
 
     result.final_equity = float(
         np.nansum([p.iloc[-1] for p in equity_paths.values()])
@@ -188,10 +206,7 @@ def run_backtest(
         np.nansum([p.iloc[-1] for p in bh_paths.values()])
     ) if bh_paths else 0.0
     result.equity = _combine_daily(equity_paths, bh_paths)
-    profits = [
-        t["profit"] for t in result.trades
-        if isinstance(t.get("profit"), (int, float)) and np.isfinite(t["profit"])
-    ]
+    profits = [t["profit"] for t in closed_trades(result)]
     result.total_profit = float(np.nansum(profits)) if profits else 0.0
     result.win_count = sum(1 for p in profits if p > 0)
     if not result.equity.empty:
@@ -200,62 +215,77 @@ def run_backtest(
     return result
 
 
-def _execute(
-    order: dict, code: str, price: float, exec_time: str,
-    result: BacktestResult, acc: SubAccount, engine_: TtEngine,
-    open_leg: dict | None,
-) -> dict | None:
-    """按委托执行（price 为决策次bar开盘价）。返回更新后的开仓腿记录。"""
-    try:
-        if order["action"] == TtAction.OPEN_T:
-            fill = acc.open_t(
-                direction=order["direction"], shares=order["shares"], price=price
-            )
-            result.open_t_count += 1
-            engine_.on_fill_leg()  # 开仓腿成交确认 → LEG2_PENDING
-            return {
-                "code": code,
-                "direction": order["direction"].label,  # 正T / 反T
-                "leg1_time": exec_time,
-                "leg1_price": fill.price,
-                "leg1_shares": fill.shares,
+@dataclass
+class _Executor:
+    """单标的委托执行器：decision → 账户成交 + 引擎确认 + T单台账。
+
+    契约（对应 engine.py 模块 docstring）：eod_force_leg1_unconfirmed 的
+    FORCE_CLOSE 到来时，若开仓腿实际已成交则正常对冲；未成交（无在场T单）
+    则拒绝会沿 resolve_stale_order 复位状态机。
+    """
+
+    code: str
+    result: BacktestResult
+    acc: SubAccount
+    engine_: TtEngine
+    open_leg: dict | None = None
+
+    def execute(self, order: dict, price: float, exec_time: str) -> None:
+        try:
+            if order["action"] == TtAction.OPEN_T:
+                self._open(order, price, exec_time)
+            else:
+                self._close(order, price, exec_time)
+        except TOrderRejected as e:
+            self.result.trades.append({
+                "code": self.code, "direction": "被拒", "note": str(e),
                 "signal_time": order["signal_time"],
-                "trigger": order["reason"],
-            }
-        fill, profit = acc.close_t(price=price)
-        row = dict(open_leg or {"direction": "未知", "code": code})
+            })
+            if order["action"] == TtAction.OPEN_T or "no pending" in str(e):
+                self.engine_.resolve_stale_order()
+            else:
+                self.engine_.on_fill_leg()
+
+    def _open(self, order: dict, price: float, exec_time: str) -> None:
+        fill = self.acc.open_t(
+            direction=order["direction"], shares=order["shares"], price=price
+        )
+        self.result.open_t_count += 1
+        self.engine_.on_fill_leg()  # 开仓腿成交确认 → LEG2_PENDING
+        self.open_leg = {
+            "code": self.code,
+            "direction": order["direction"].label,  # 正T / 反T
+            "leg1_time": exec_time,
+            "leg1_price": fill.price,
+            "leg1_shares": fill.shares,
+            "signal_time": order["signal_time"],
+            "trigger": order["reason"],
+        }
+
+    def _close(self, order: dict, price: float, exec_time: str) -> None:
+        fill, profit = self.acc.close_t(price=price)
+        row = dict(self.open_leg or {"direction": "未知", "code": self.code})
+        leg1_price = row.get("leg1_price")
+        holding_bars = None
+        if row.get("leg1_time"):
+            delta = pd.Timestamp(exec_time) - pd.Timestamp(row["leg1_time"])
+            holding_bars = int(delta / pd.Timedelta(minutes=5))
+        profit_bp = (
+            profit / (fill.shares * leg1_price) * 10_000.0
+            if leg1_price and fill.shares else np.nan
+        )
         row.update({
             "leg2_time": exec_time,
             "leg2_price": fill.price,
             "leg2_shares": fill.shares,
             "profit": profit,
+            "profit_bp": round(float(profit_bp), 2) if np.isfinite(profit_bp) else np.nan,
+            "holding_bars": holding_bars,
             "hedge_reason": order["reason"],
         })
-        result.trades.append(row)
-        engine_.on_fill_leg()
-        return None
-    except TOrderRejected as e:
-        result.trades.append({
-            "code": code, "direction": "被拒", "note": str(e),
-            "signal_time": order["signal_time"],
-        })
-        if order["action"] == TtAction.OPEN_T:
-            engine_.resolve_stale_order()
-        else:
-            engine_.on_fill_leg()
-        return open_leg
-
-
-def _daily_equity(acc: SubAccount, df: pd.DataFrame) -> pd.Series:
-    """每日收盘净资产 = 现金 + 持仓×收盘价。"""
-    s = df.set_index("time")["close"].astype(float).resample("1D").last().dropna()
-    return s.map(lambda c: acc.cash + acc.shares_held * float(c))
-
-
-def _daily_bh(acc: SubAccount, bh_cash: float, df: pd.DataFrame) -> pd.Series:
-    """纯持有基准：同一底仓一动不动 + 残余现金（与做T账户同起点）。"""
-    s = df.set_index("time")["close"].astype(float).resample("1D").last().dropna()
-    return s.map(lambda c: bh_cash + acc.base_shares * float(c))
+        self.result.trades.append(row)
+        self.open_leg = None
+        self.engine_.on_fill_leg()
 
 
 def _combine_daily(equity_paths: dict, bh_paths: dict) -> pd.DataFrame:
@@ -292,8 +322,21 @@ def write_outputs(result: BacktestResult, params: TTradeParams, outdir: Path) ->
     equity_path = outdir / "equity.csv"
     result.equity.to_csv(equity_path, index=False, encoding="utf-8-sig")
     paths["equity"] = equity_path
+    import json as _json
+
     params_path = outdir / "params.json"
-    params.save(params_path)
+    snapshot = {
+        "params": _json.loads(params.to_json()),
+        "run": {
+            "codes": result.codes,
+            "total_cash": result.total_cash,
+            "start": result.start,
+            "end": result.end,
+        },
+    }
+    params_path.write_text(
+        _json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     paths["params"] = params_path
     summary_path = outdir / "summary.md"
     summary_path.write_text(render_summary(result, params), encoding="utf-8")
@@ -301,11 +344,16 @@ def write_outputs(result: BacktestResult, params: TTradeParams, outdir: Path) ->
     return paths
 
 
-def render_summary(result: BacktestResult, params: TTradeParams) -> str:
-    closed = [
+def closed_trades(result: BacktestResult) -> list[dict]:
+    """已闭环（有合法差价）的 T 单。"""
+    return [
         t for t in result.trades
         if isinstance(t.get("profit"), (int, float)) and np.isfinite(t["profit"])
     ]
+
+
+def render_summary(result: BacktestResult, params: TTradeParams) -> str:
+    closed = closed_trades(result)
     n_trades = len(closed)
     win_rate = result.win_count / n_trades if n_trades else 0.0
     excess = result.final_equity - result.final_bh_equity
@@ -318,6 +366,7 @@ def render_summary(result: BacktestResult, params: TTradeParams) -> str:
     )
     fwd = len([t for t in closed if t.get("direction") == "正T"])
     rev = len([t for t in closed if t.get("direction") == "反T"])
+    avg_profit = result.total_profit / n_trades if n_trades else 0.0
     return (
         "# 做T回测摘要（核心层）\n\n"
         f"- 样本区间: {result.start} → {result.end}"
@@ -326,5 +375,5 @@ def render_summary(result: BacktestResult, params: TTradeParams) -> str:
         f"- 主口径 做T vs 纯持有: {result.final_equity:,.0f} vs {result.final_bh_equity:,.0f}"
         f"（增量 {excess:+,.0f}，年化差 {ann:+.2%}）\n"
         f"- T单: {n_trades} 笔（正T {fwd} / 反T {rev}），胜率 {win_rate:.1%}，"
-        f"累计差价 {result.total_profit:+,.0f}\n"
+        f"平均差价 {avg_profit:+,.0f}，累计 {result.total_profit:+,.0f}\n"
     )

@@ -585,10 +585,13 @@ def cmd_t_backtest(args):
     from quant_etf.t_trade.params import TTradeParams
 
     codes = args.codes.split(",") if args.codes else list(dict.fromkeys(ETF_POOL))
+    end_arg = args.end
+    if end_arg and len(end_arg) == 10:  # YYYY-MM-DD → 含当日全天
+        end_arg = end_arg + " 23:59:59"
     params = TTradeParams.from_json(Path(args.params).read_text(encoding="utf-8")) if args.params else TTradeParams()
 
     logger.info(f"t-backtest: {len(codes)} 标的, {args.start} → {args.end}")
-    bars = load_pool_bars(codes, start=args.start, end=args.end)
+    bars = load_pool_bars(codes, start=args.start, end=end_arg)
     if not bars:
         logger.error("无可用分钟数据")
         return

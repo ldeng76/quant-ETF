@@ -51,7 +51,8 @@ class TestForwardTFlow:
 
     def test_reverse_t_entry_mirror(self):
         e = engine()
-        d = e.on_bar(ctx(rsi=85.0, trend=Trend.DOWN))
+        d = e.on_bar(ctx(rsi=85.0, trend=Trend.DOWN,
+                         t=datetime(2026, 9, 24, 14, 0)))  # 反T卖出腿时段
         assert d.action == TtAction.OPEN_T
         assert d.direction == Direction.REVERSE
 
@@ -119,7 +120,7 @@ class TestEodClosure:
         # 开仓腿决策后成交确认丢失 → EOD 仍须发出强平，由编排方核对账户
         e = engine()
         e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
-                     t=datetime(2026, 9, 24, 14, 50)))
+                     t=datetime(2026, 9, 24, 10, 55)))
         assert e.state == TtState.LEG1_SUBMITTED
         d = e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
                          t=datetime(2026, 9, 24, 14, 55)))
@@ -133,25 +134,25 @@ class TestEodClosure:
         assert e.state == TtState.IDLE
 
     def test_loose_mode_allows_overnight(self):
-        # strict_eod=False：EOD 不强平、尾盘仍可开仓（隔夜T单对照实验）
-        e = engine(strict_eod=False)
+        # strict_eod=False：EOD 不强平、（关时段门后）尾盘仍可开仓——隔夜T单对照实验
+        e = engine(strict_eod=False, time_window=False)
         e.on_bar(ctx(rsi=15.0, trend=Trend.UP))
         e.on_fill_leg()
         d = e.on_bar(ctx(rsi=50.0, trend=Trend.UP,
                          t=datetime(2026, 9, 24, 14, 55)))
         assert d.action == TtAction.NONE
-        d2 = engine(strict_eod=False).on_bar(ctx(rsi=15.0, trend=Trend.UP,
-                                                 t=datetime(2026, 9, 24, 14, 56)))
+        d2 = engine(strict_eod=False, time_window=False).on_bar(
+            ctx(rsi=15.0, trend=Trend.UP, t=datetime(2026, 9, 24, 14, 56)))
         assert d2.action == TtAction.OPEN_T
 
     def test_stale_leg1_resets_on_day_rollover(self):
-        # 严格模式下跨日的 LEG1_SUBMITTED 是死单，自动复位后可正常开仓
+        # 严格模式下跨日的 LEG1_SUBMITTED 是死单（成交确认丢失），自动复位后可再开仓
         e = engine()
         e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
-                     t=datetime(2026, 9, 24, 14, 50)))
+                     t=datetime(2026, 9, 24, 10, 0)))
         assert e.state == TtState.LEG1_SUBMITTED
         d = e.on_bar(ctx(rsi=15.0, trend=Trend.UP,
-                         t=datetime(2026, 9, 25, 9, 40)))
+                         t=datetime(2026, 9, 25, 10, 0)))
         assert d.action == TtAction.OPEN_T  # 复位成功才可能再次开仓
 
 
