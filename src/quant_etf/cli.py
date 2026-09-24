@@ -546,6 +546,12 @@ def build_parser():
                    help="股票池 (默认: etf)")
     p.add_argument("--days", type=int, default=60, help="最大回溯天数 (默认: 60)")
     p.add_argument("--codes", type=str, help="逗号分隔的标的代码 (覆盖 --pool)")
+    p.add_argument("--deep-bars", type=int, dest="deep_bars",
+                   help="深回补：向更早历史拉取的总根数（默认 14000 ≈ 1年+）")
+    p.add_argument("--source", type=str, default="pytdx",
+                   choices=["pytdx", "akshare"], help="深回补数据源 (默认: pytdx)")
+    p.add_argument("--start", type=str, help="akshare 源起始时间 (如 2025-09-01 09:00:00)")
+    p.add_argument("--end", type=str, help="akshare 源结束时间")
 
     p = sub.add_parser("minute-audit", help="审计分钟K线数据缺失")
     p.add_argument("--pool", type=str, default="etf",
@@ -554,6 +560,8 @@ def build_parser():
     p.add_argument("--days", type=int, default=60, help="审计最近N个交易日 (默认: 60)")
     p.add_argument("--codes", type=str, help="逗号分隔的标的代码 (覆盖 --pool)")
     p.add_argument("--fix", action="store_true", help="自动修复缺失")
+    p.add_argument("--depth", action="store_true", help="审计历史深度（做T回测 M0）并落盘报告")
+    p.add_argument("--report", type=str, help="深度审计报告输出路径")
 
     return parser
 
@@ -682,11 +690,38 @@ def cmd_minute_fill(args):
     logger.info(f"标的数: {len(codes)}, 最大回溯: {args.days} 天")
     logger.info("=" * 60)
 
+    if getattr(args, "deep_bars", None):
+        from quant_etf.minute_fill import deep_backfill_codes
+        stats = deep_backfill_codes(
+            codes=codes, total_bars=args.deep_bars,
+            source=args.source, start=args.start, end=args.end,
+        )
+        print_fill_report(stats)
+        return
+
     stats = fill_minute_gaps(codes=codes, max_days=args.days)
     print_fill_report(stats)
 
 
 def cmd_minute_audit(args):
+    if getattr(args, "depth", False):
+        from loguru import logger
+        from quant_etf.minute_fill import (
+            _get_pool_codes,
+            depth_audit,
+            save_depth_report,
+            print_depth_report,
+        )
+
+        codes = args.codes.split(",") if args.codes else _get_pool_codes(args.pool)
+        codes = codes + ["000300"]  # 沪深300 指数纳入深度审计
+        depth = depth_audit(codes)
+        print_depth_report(depth)
+        from datetime import date as _date
+        report = args.report or f"data/results/{_date.today().isoformat()}/t_trade/data_audit.md"
+        save_depth_report(depth, report)
+        return
+
     from loguru import logger
     from quant_etf.minute_fill import (
         _get_pool_codes,

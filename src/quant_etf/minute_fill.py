@@ -389,3 +389,178 @@ def print_audit_report(report: dict) -> None:
         print(f"  修复: {fix_stats['success']} 成功, {fix_stats['failed']} 失败, "
               f"{fix_stats['total_bars']} 条补入")
     print()
+
+
+# ---------------------------------------------------------------------------
+# 深度审计与深回补（做T回测 M0）
+# ---------------------------------------------------------------------------
+
+def depth_audit(codes: list[str]) -> dict:
+    """审计每只标的在 PG minute_bars 中的历史深度（起止/天数/根数）。
+
+    与 audit_minute_gaps 的"近N日缺口"视角不同，本函数回答
+    "回测窗口能覆盖多长"——做T回测的样本区间标注依据。
+    """
+    from quant_etf.minute_collector import _get_pg_conn as get_pg_conn
+
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    results = []
+    for code in codes:
+        cur.execute(
+            """
+            select count(*), min(time), max(time),
+                   count(distinct date(time))
+            from minute_bars where code = %s
+            """,
+            (code,),
+        )
+        n, tmin, tmax, days = cur.fetchone()
+        results.append({
+            "code": code,
+            "bars": int(n),
+            "days": int(days),
+            "first": tmin.strftime("%Y-%m-%d %H:%M") if tmin else None,
+            "last": tmax.strftime("%Y-%m-%d %H:%M") if tmax else None,
+        })
+    conn.close()
+
+    covered = [r for r in results if r["bars"] > 0]
+    return {
+        "total_codes": len(codes),
+        "codes_with_data": len(covered),
+        "global_first": min((r["first"] for r in covered), default=None),
+        "global_last": max((r["last"] for r in covered), default=None),
+        "results": results,
+    }
+
+
+def print_depth_report(depth: dict) -> None:
+    print("\n===== 分钟数据深度审计 =====")
+    print(f"标的数: {depth['total_codes']}, 有数据: {depth['codes_with_data']}")
+    print(f"全局覆盖: {depth['global_first']} → {depth['global_last']}")
+    for r in depth["results"][:10]:
+        print(f"  {r['code']}: {r['bars']}根 / {r['days']}天 "
+              f"[{r['first']} → {r['last']}]")
+    if len(depth["results"]) > 10:
+        print(f"  ... 共 {len(depth['results'])} 只")
+
+
+def save_depth_report(depth: dict, path) -> None:
+    """审计报告落盘，作为回测报告样本区间标注的引用来源。"""
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# 分钟数据深度审计（做T回测 M0）",
+        "",
+        f"- 审计标的数: {depth['total_codes']}",
+        f"- 有数据标的: {depth['codes_with_data']}",
+        f"- 全局覆盖: {depth['global_first']} → {depth['global_last']}",
+        "",
+        "| code | bars | days | first | last |",
+        "|---|---|---|---|---|",
+    ]
+    for r in depth["results"]:
+        lines.append(
+            f"| {r['code']} | {r['bars']} | {r['days']} | {r['first']} | {r['last']} |"
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info(f"depth report saved: {path}")
+
+
+def _fetch_akshare_5m(code: str, start: str, end: str,
+                      retries: int = 3, backoff: float = 20.0) -> list[dict]:
+    """akshare 东财源拉 5 分钟线（pytdx 不可用时的备源），带退避重试。
+
+    返回与 save_minute_data_from_dicts 兼容的 dict 列表。
+    """
+    import time as time_module
+
+    import akshare as ak
+    import pandas as pd
+
+    is_index = code in ("000300", "000016", "000905", "399001", "399006")
+    for attempt in range(1, retries + 1):
+        try:
+            if is_index:
+                df = ak.index_zh_a_hist_min_em(
+                    symbol=code, period="5",
+                    start_date=start, end_date=end,
+                )
+            else:
+                df = ak.fund_etf_hist_min_em(
+                    symbol=code, period="5",
+                    start_date=start, end_date=end, adjust="",
+                )
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append({
+                    "time": pd.to_datetime(row["时间"]),
+                    "open": float(row["开盘"]),
+                    "high": float(row["最高"]),
+                    "low": float(row["最低"]),
+                    "close": float(row["收盘"]),
+                    "volume": float(row["成交量"]),
+                    "amount": float(row["成交额"]) if "成交额" in row else 0.0,
+                })
+            return out
+        except Exception as e:
+            logger.warning(f"akshare {code} attempt {attempt}/{retries} failed: {e!r}")
+            if attempt < retries:
+                time_module.sleep(backoff * attempt)
+    return []
+
+
+def deep_backfill_codes(
+    codes: list[str],
+    total_bars: int = 14_000,
+    source: str = "pytdx",
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
+    """向更早的历史深回补 5 分钟线（fill_minute_gaps 只向前补，本函数补深处）。
+
+    :param total_bars: pytdx 源的拉取根数（800 的倍数翻页至极限）
+    :param source: "pytdx"（主源）或 "akshare"（东财备源，需 start/end）
+    """
+    stats = {
+        "total": len(codes), "success": 0, "failed": 0,
+        "total_bars": 0, "failures": [],
+    }
+    for code in codes:
+        try:
+            if source == "pytdx":
+                from quant_etf.minute_collector import (
+                    get_minute_bars,
+                    save_minute_data_from_dicts,
+                )
+                data = get_minute_bars(code, count=total_bars)
+            else:
+                from quant_etf.minute_collector import save_minute_data_from_dicts
+                data = _fetch_akshare_5m(code, start, end)
+            if not data:
+                stats["failed"] += 1
+                stats["failures"].append((code, "no data from source"))
+                logger.warning(f"deep-fill: {code} - no data returned")
+                continue
+            saved = save_minute_data_from_dicts(code, data)
+            if saved:
+                stats["success"] += 1
+                stats["total_bars"] += len(data)
+                times = [b["time"] for b in data if b.get("time")]
+                logger.info(
+                    f"deep-fill: {code} - {len(data)} bars "
+                    f"[{min(times)} → {max(times)}]"
+                )
+            else:
+                stats["failed"] += 1
+                stats["failures"].append((code, "save failed"))
+        except Exception as e:
+            stats["failed"] += 1
+            stats["failures"].append((code, str(e)))
+            logger.error(f"deep-fill: {code} - error: {e}")
+    return stats
