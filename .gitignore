@@ -40,3 +40,6 @@ cookies.txt
 fix_placeholder.py
 test_execute.py
 nul
+
+# CodeGraph local index (machine-local artifact, not committed)
+.codegraph/
