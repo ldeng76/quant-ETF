@@ -8,6 +8,7 @@ from quant_etf.t_trade.indicators import (
     avg_amplitude,
     bottom_fractal,
     lower_shadow_rejection,
+    ma,
     rsi,
     top_fractal,
     upper_shadow_rejection,
@@ -50,6 +51,19 @@ class TestRsi:
 
     def test_too_short_series_all_nan(self):
         result = rsi(_series([10.0]), length=6)
+        assert result.isna().all()
+
+
+class TestMa:
+    def test_rolling_mean_hand_computed(self):
+        result = ma(_series([1.0, 2.0, 3.0, 4.0]), length=2)
+        assert np.isnan(result.iloc[0])
+        assert result.iloc[1] == pytest.approx(1.5)
+        assert result.iloc[2] == pytest.approx(2.5)
+        assert result.iloc[3] == pytest.approx(3.5)
+
+    def test_window_short_of_full_is_nan(self):
+        result = ma(_series([1.0, 2.0, 3.0]), length=96)
         assert result.isna().all()
 
 
@@ -134,13 +148,14 @@ class TestAvgAmplitude:
         close = _series([10.5, 11.0, 11.2])
         result = avg_amplitude(high, low, close, window=2)
         assert np.isnan(result.iloc[0])
-        assert result.iloc[1] == pytest.approx(2.0 / 10.5)
+        # day2 是首个有效振幅，但窗口内只有 1 个非 NaN 样本 → NaN（严格窗口）
+        assert np.isnan(result.iloc[1])
         assert result.iloc[2] == pytest.approx((2.0 / 10.5 + 0.5 / 11.0) / 2)
 
-    def test_window_spanning_nan_still_computes(self):
-        # window=96 但数据不足 → 用可得样本（min_periods=1）而非全 NaN
+    def test_window_not_full_is_nan(self):
+        # 窗口不满 → NaN（fail-closed），振幅过滤暖机期停手
         high = _series([11.0, 12.0])
         low = _series([10.0, 10.0])
         close = _series([10.5, 11.0])
         result = avg_amplitude(high, low, close, window=96)
-        assert result.iloc[1] == pytest.approx(2.0 / 10.5)
+        assert np.isnan(result.iloc[1])

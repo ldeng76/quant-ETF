@@ -8,6 +8,11 @@ import numpy as np
 import pandas as pd
 
 
+def ma(close: pd.Series, length: int) -> pd.Series:
+    """简单移动平均，窗口不满为 NaN（96均线用）。"""
+    return close.rolling(length).mean()
+
+
 def rsi(close: pd.Series, length: int = 6) -> pd.Series:
     """RSI，通达信口径：SMA(MAX(CLOSE-LC,0),N,1) / SMA(ABS(CLOSE-LC),N,1) * 100。
 
@@ -71,7 +76,7 @@ def lower_shadow_rejection(
 ) -> pd.Series:
     """下影线企稳：下影线 ≥ 2×实体 且 收盘位于 bar 上半部（"跌不动的证明"）。"""
     body = (close - open_).abs()
-    lower_shadow = pd.concat([open_, close], axis=1).min(axis=1) - low
+    lower_shadow = np.minimum(open_, close) - low
     close_in_upper_half = close >= (high + low) / 2.0
     return ((lower_shadow >= 2 * body) & (lower_shadow > 0) & close_in_upper_half).astype(bool)
 
@@ -81,7 +86,7 @@ def upper_shadow_rejection(
 ) -> pd.Series:
     """上影线承压：上影线 ≥ 2×实体 且 收盘位于 bar 下半部（"涨不动的证明"）。"""
     body = (close - open_).abs()
-    upper_shadow = high - pd.concat([open_, close], axis=1).max(axis=1)
+    upper_shadow = high - np.maximum(open_, close)
     close_in_lower_half = close <= (high + low) / 2.0
     return ((upper_shadow >= 2 * body) & (upper_shadow > 0) & close_in_lower_half).astype(bool)
 
@@ -91,7 +96,7 @@ def avg_amplitude(
 ) -> pd.Series:
     """滚动平均日振幅：(high - low) / 昨收，window 日均值。
 
-    样本不足 window 时用可得样本（min_periods=1），便于回补初期使用。
+    窗口不满为 NaN——暖机期不判定（fail-closed），振幅过滤据此停手。
     """
     amplitude = (high - low) / close.shift(1)
-    return amplitude.rolling(window, min_periods=1).mean()
+    return amplitude.rolling(window).mean()

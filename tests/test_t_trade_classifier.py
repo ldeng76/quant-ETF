@@ -1,7 +1,6 @@
 """做T判定库测试：三完全分类 / 纵向共振 / 大盘过滤 / 振幅判定。"""
 
 import pandas as pd
-import pytest
 
 from quant_etf.t_trade.classifier import (
     Trend,
@@ -18,30 +17,32 @@ def _ma(values) -> pd.Series:
 
 class TestClassifyTrend:
     def test_flat_ma_is_sideways(self):
-        result = classify_trend(_ma([100.0] * 12), n=8, threshold=0.001)
-        assert (result == Trend.SIDEWAYS).all()
+        # 前 8 根 UNKNOWN（暖机），斜率 0 → SIDEWAYS
+        result = classify_trend(_ma([100.0] * 12), slope_bars=8, threshold=0.001)
+        assert (result.iloc[:8] == Trend.UNKNOWN).all()
+        assert (result.iloc[8:] == Trend.SIDEWAYS).all()
 
     def test_rising_ma_beyond_threshold_is_up(self):
-        # 前 8 根历史不足 → SIDEWAYS；t=8 起 slope=(101-100)/100=1% > 0.1% → UP
+        # 前 8 根历史不足 → UNKNOWN；t=8 起 slope=(101-100)/100=1% > 0.1% → UP
         values = [100.0] * 8 + [101.0, 102.0, 103.0, 104.0]
-        result = classify_trend(_ma(values), n=8, threshold=0.001)
-        assert (result.iloc[:8] == Trend.SIDEWAYS).all()
+        result = classify_trend(_ma(values), slope_bars=8, threshold=0.001)
+        assert (result.iloc[:8] == Trend.UNKNOWN).all()
         assert (result.iloc[8:] == Trend.UP).all()
 
     def test_falling_ma_beyond_threshold_is_down(self):
         values = [100.0] * 8 + [99.0, 98.0, 97.0, 96.0]
-        result = classify_trend(_ma(values), n=8, threshold=0.001)
+        result = classify_trend(_ma(values), slope_bars=8, threshold=0.001)
         assert (result.iloc[8:] == Trend.DOWN).all()
 
     def test_slope_equal_to_threshold_is_sideways(self):
         # slope = (100.1-100)/100 = 0.1% == threshold，严格大于才算 UP
         values = [100.0] * 8 + [100.1, 100.2]
-        result = classify_trend(_ma(values), n=8, threshold=0.001)
+        result = classify_trend(_ma(values), slope_bars=8, threshold=0.001)
         assert result.iloc[8] == Trend.SIDEWAYS
 
-    def test_insufficient_history_is_sideways(self):
-        result = classify_trend(_ma([100.0, 101.0]), n=8, threshold=0.001)
-        assert (result == Trend.SIDEWAYS).all()
+    def test_insufficient_history_is_unknown(self):
+        result = classify_trend(_ma([100.0, 101.0]), slope_bars=8, threshold=0.001)
+        assert (result == Trend.UNKNOWN).all()
 
 
 class TestResonates:

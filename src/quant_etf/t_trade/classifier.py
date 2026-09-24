@@ -10,24 +10,26 @@ import pandas as pd
 
 
 class Trend(Enum):
-    """三完全分类：走势有且仅有三种。"""
+    """三完全分类：走势有且仅有三种；UNKNOWN = 指标暖机未满，无法分类。"""
 
     UP = "up"
     DOWN = "down"
     SIDEWAYS = "sideways"
+    UNKNOWN = "unknown"
 
 
-def classify_trend(ma: pd.Series, n: int = 8, threshold: float = 0.001) -> pd.Series:
+def classify_trend(ma: pd.Series, slope_bars: int = 8, threshold: float = 0.001) -> pd.Series:
     """按 MA 斜率做三完全分类：slope=(MA_t − MA_{t−n}) / MA_{t−n}。
 
-    slope > +threshold → UP；< −threshold → DOWN；其间（含历史不足）→ SIDEWAYS。
+    slope > +threshold → UP；< −threshold → DOWN；其间 → SIDEWAYS；
+    历史不足 n 根（slope 不可算）→ UNKNOWN，引擎不得据此出手。
     """
-    base = ma.shift(n)
+    base = ma.shift(slope_bars)
     slope = (ma - base) / base
 
     def to_trend(s: float) -> Trend:
         if pd.isna(s):
-            return Trend.SIDEWAYS
+            return Trend.UNKNOWN
         if s > threshold:
             return Trend.UP
         if s < -threshold:
@@ -37,9 +39,9 @@ def classify_trend(ma: pd.Series, n: int = 8, threshold: float = 0.001) -> pd.Se
     return slope.map(to_trend)
 
 
-def resonates(higher: Trend, direction: Trend) -> bool:
-    """纵向共振原子：两个级别方向完全一致。"""
-    return higher == direction
+def resonates(higher_tf: Trend, direction: Trend) -> bool:
+    """纵向共振原子：高级别与交易方向完全一致（含"都盘整"的盘整共振）。"""
+    return higher_tf == direction
 
 
 def index_permits(index_trend: Trend, direction: Trend) -> bool:
