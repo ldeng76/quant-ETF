@@ -293,12 +293,25 @@ def run_backtest(
                     }
                 elif is_day_end and decision.action != TtAction.OPEN_T:
                     # 数据缺口：日末无次bar可执行——对冲类委托按当bar收盘应急成交
-                    executor.execute(decision.__dict__, float(frames.close.iloc[i]),
+                    executor.execute({
+                        "action": decision.action,
+                        "direction": decision.direction,
+                        "shares": decision.shares,
+                        "signal_time": str(frames.time.iloc[i]),
+                        "reason": decision.reason,
+                    }, float(frames.close.iloc[i]),
                                      str(frames.time.iloc[i]))
                 # 开仓类跨日委托直接丢弃（严格闭环模式不该出现；宽松模式由隔夜语义覆盖）
 
             # ---- 日终对账与净值实点 ----
             if is_day_end:
+                # 日末仍有未对冲 T 单：按 EOD 强平规则处置
+                if acc.pending_t_shares is not None:
+                    acc.force_close_stale(float(frames.close.iloc[i]))
+                    result.trades.append({
+                        "code": code, "direction": "日末强平",
+                        "signal_time": str(frames.time.iloc[i]),
+                    })
                 assert acc.base_intact(), (
                     f"{code} 日终底仓对账失败: held={acc.shares_held} "
                     f"base={acc.base_shares} (bar {frames.time.iloc[i]})"
