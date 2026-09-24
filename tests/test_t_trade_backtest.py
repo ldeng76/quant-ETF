@@ -91,11 +91,15 @@ class TestSyntheticSmoke:
         bars = _bars(_sideways_with_dip_and_spike())
         result = run_backtest(["TEST"], {"TEST": bars}, PARAMS, total_cash=100_000.0)
         paths = write_outputs(result, PARAMS, tmp_path)
-        for name in ("trades", "equity", "summary", "params"):
+        for name in ("trades", "equity", "summary", "params", "dilution", "html"):
             assert name in paths and paths[name].exists()
         summary = paths["summary"].read_text(encoding="utf-8")
         assert "样本区间" in summary and "做T vs 纯持有" in summary
         assert "平均差价" in summary
+        # 正反T分解与净值曲线一致性
+        html = paths["html"].read_text(encoding="utf-8")
+        assert "T 单分解" in html and "池内日均振幅分布" in html
+        assert not result.diluted.empty
 
     def test_same_params_rerun_identical(self):
         bars = _bars(_sideways_with_dip_and_spike())

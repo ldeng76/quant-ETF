@@ -570,8 +570,57 @@ def build_parser():
     p.add_argument("--cash", type=float, default=1_000_000.0, help="总资金 (默认 100万)")
     p.add_argument("--params", type=str, help="参数文件 JSON (默认用内置默认参数)")
     p.add_argument("--outdir", type=str, default=None, help="产物输出目录")
+    p.add_argument("--matrix", action="store_true",
+                   help="M4a 批量实验：消融+级别×RSI矩阵+成本网格+隔夜对照")
 
     return parser
+
+
+def _run_matrix(codes, bars, params, args, index_bars):
+    """M4a 批量实验：消融 + 级别×RSI 矩阵 + 成本网格 + 隔夜对照，产物落盘。"""
+    from pathlib import Path as _Path
+    from datetime import date as _date
+    import pandas as pd
+    from loguru import logger
+    from quant_etf.t_trade.metrics import (
+        run_ablation, run_cost_grid, run_level_rsi_matrix, run_eod_compare,
+    )
+    from quant_etf.t_trade.backtest import write_outputs, run_backtest
+
+    outdir = _Path(args.outdir) if args.outdir else (
+        _Path("data/results") / _date.today().isoformat() / "t_trade" / "matrix"
+    )
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("[matrix] 基线回测 + 增强开关消融")
+    baseline = run_backtest(codes, bars, params, total_cash=args.cash, index_bars=index_bars)
+    ablation = run_ablation(codes, bars, params, args.cash, index_bars)
+    ablation.to_csv(outdir / "ablation.csv", index=False, encoding="utf-8-sig")
+
+    logger.info("[matrix] 主级别×RSI 阈值矩阵")
+    level_rsi = run_level_rsi_matrix(codes, bars, params, args.cash, index_bars)
+    level_rsi.to_csv(outdir / "level_rsi_matrix.csv", index=False, encoding="utf-8-sig")
+
+    logger.info("[matrix] 成本敏感性网格")
+    cost = run_cost_grid(codes, bars, params, args.cash, index_bars)
+    cost.to_csv(outdir / "cost_grid.csv", index=False, encoding="utf-8-sig")
+
+    logger.info("[matrix] 严格闭环 vs 允许隔夜")
+    eod = run_eod_compare(codes, bars, params, args.cash, index_bars)
+    eod.to_csv(outdir / "eod_compare.csv", index=False, encoding="utf-8-sig")
+
+    write_outputs(baseline, params, outdir)
+    lines = [
+        "# 做T回测矩阵摘要（M4a）\n",
+        f"- 样本区间: {baseline.start} → {baseline.end}（深度审计见 data_audit.md）\n",
+        "## 增强开关消融\n", ablation.to_markdown(index=False), "\n",
+        "## 主级别×RSI 矩阵\n", level_rsi.to_markdown(index=False), "\n",
+        "## 成本敏感性网格\n", cost.to_markdown(index=False), "\n",
+        "## 严格闭环 vs 允许隔夜\n", eod.to_markdown(index=False), "\n",
+    ]
+    (outdir / "matrix_summary.md").write_text("\n".join(lines), encoding="utf-8")
+    print(ablation.to_string(index=False))
+    print(f"矩阵产物: {outdir}")
 
 
 def cmd_t_backtest(args):
@@ -595,7 +644,17 @@ def cmd_t_backtest(args):
     if not bars:
         logger.error("无可用分钟数据")
         return
-    result = run_backtest(codes, bars, params, total_cash=args.cash)
+    index_bars = None
+    idx_df = load_pool_bars(["000300"], start=args.start, end=end_arg)
+    if idx_df:
+        index_bars = idx_df["000300"]
+
+    if getattr(args, "matrix", False):
+        _run_matrix(codes, bars, params, args, index_bars)
+        return
+
+    result = run_backtest(codes, bars, params, total_cash=args.cash,
+                          index_bars=index_bars)
 
     outdir = _Path(args.outdir) if args.outdir else (
         _Path("data/results") / _date.today().isoformat() / "t_trade" / "backtest"

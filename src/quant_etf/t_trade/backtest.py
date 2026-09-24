@@ -51,12 +51,24 @@ def _align_trend(trend_hi: pd.Series, times: pd.Series) -> list:
     return [None if pd.isna(v) else v for v in aligned]
 
 
+def _avg_daily_amp(df: pd.DataFrame) -> float:
+    """全样本日均振幅：(日内高−日内低)/昨收 的逐日均值。"""
+    day = df["time"].dt.date
+    d_hi = df["high"].astype(float).groupby(day).max()
+    d_low = df["low"].astype(float).groupby(day).min()
+    d_close = df["close"].astype(float).groupby(day).last()
+    return float(((d_hi - d_low) / d_close.shift(1)).dropna().mean())
+
+
 def higher_trend_series(df5: pd.DataFrame, params: TTradeParams,
-                        rule: str = "15min") -> pd.Series:
+                        rule: str | None = None) -> pd.Series:
     """高级别三分类序列（按收盘时间索引，供 5m 时间线前向对齐）。
 
     15m bar 收盘时点起其分类可被同刻或之后的 5m bar 消费——无前视。
+    rule 缺省按主级别自动选择：主 5m→15m，主 15m→60m。
     """
+    if rule is None:
+        rule = "60min" if params.primary_level == "15m" else "15min"
     hi = resample_intraday(df5, rule)
     ma_hi = ma(hi["close"].astype(float), params.ma_len)
     return classify_trend(ma_hi, slope_bars=params.slope_n,
@@ -75,7 +87,6 @@ class SymbolFrames:
     rsi: pd.Series
     trend: pd.Series
     day_range: pd.Series  # 当日截至当前bar的已实现振幅（相对昨收）
-    ma: pd.Series
     fractal_buy: pd.Series  # bool：底分型（近3bar）或下影线企稳
     fractal_sell: pd.Series  # bool：顶分型（近3bar）或上影线承压
     vol_shrink: pd.Series  # bool：量能收缩
@@ -103,12 +114,13 @@ def compute_frames(df5: pd.DataFrame, params: TTradeParams) -> SymbolFrames:
     h = df5["high"].astype(float)
     low_ = df5["low"].astype(float)
     vol = df5["volume"].astype(float)
+    # rolling(2)：最近两根内确认过分型即算（含当前bar），贴"最近已完成bar构成"
     fractal_buy = (
-        bottom_fractal(h, low_).rolling(3, min_periods=1).max().astype(bool)
+        bottom_fractal(h, low_).rolling(2, min_periods=1).max().astype(bool)
         | lower_shadow_rejection(o, h, low_, close)
     )
     fractal_sell = (
-        top_fractal(h, low_).rolling(3, min_periods=1).max().astype(bool)
+        top_fractal(h, low_).rolling(2, min_periods=1).max().astype(bool)
         | upper_shadow_rejection(o, h, low_, close)
     )
     vol_shrink = vol < vol.shift(2)
@@ -118,7 +130,7 @@ def compute_frames(df5: pd.DataFrame, params: TTradeParams) -> SymbolFrames:
     return SymbolFrames(
         time=df5["time"], open=o, high=h, low=low_,
         close=close, rsi=rsi_s, trend=trend, day_range=day_range,
-        ma=ma_s, fractal_buy=fractal_buy, fractal_sell=fractal_sell,
+        fractal_buy=fractal_buy, fractal_sell=fractal_sell,
         vol_shrink=vol_shrink, dev_above=dev_above, dev_below=dev_below,
     )
 
@@ -136,6 +148,9 @@ class BacktestResult:
     total_profit: float = 0.0
     final_equity: float = 0.0
     final_bh_equity: float = 0.0
+    amp_floor: float = 0.0
+    diluted: pd.DataFrame = field(default_factory=pd.DataFrame)  # date,code,cost_per_share
+    pool_amplitude: list = field(default_factory=list)  # (code, 日均振幅)
 
 
 def run_backtest(
@@ -152,6 +167,7 @@ def run_backtest(
     equity_paths: dict[str, pd.Series] = {}
     bh_paths: dict[str, pd.Series] = {}
     active_codes: list[str] = []
+    diluted_frames: list[pd.DataFrame] = []
 
     index_trend_hi = None
     if index_bars is not None and len(index_bars):
@@ -163,17 +179,13 @@ def run_backtest(
     # 振幅过滤的池内分位数复评：个股口径阈值在 ETF 池上常不可达，
     # 用池内 60 分位日均振幅封顶，避免全池被 3%式阈值一刀切停手
     amp_floor = params.amp_min
-    if params.amp_filter:
-        amps = []
-        for df in bars.values():
-            day = df["time"].dt.date
-            d_hi = df["high"].astype(float).groupby(day).max()
-            d_low = df["low"].astype(float).groupby(day).min()
-            d_close = df["close"].astype(float).groupby(day).last()
-            amps.append(float(((d_hi - d_low) / d_close.shift(1)).dropna().mean()))
-        if amps:
-            pool_p60 = float(pd.Series(amps).quantile(0.6))
-            amp_floor = min(params.amp_min, pool_p60)
+    code_amplitudes: dict[str, float] = {
+        code_: _avg_daily_amp(df) for code_, df in bars.items()
+    }
+    result.pool_amplitude = sorted(code_amplitudes.items(), key=lambda kv: -kv[1])
+    if params.amp_filter and code_amplitudes:
+        pool_p60 = float(pd.Series(list(code_amplitudes.values())).quantile(0.6))
+        amp_floor = min(params.amp_min, pool_p60)
 
     for code in codes:
         df = bars.get(code)
@@ -188,11 +200,7 @@ def run_backtest(
         )
         # 池内校准后的标的级振幅门槛（amp_filter 开启时）
         if params.amp_filter:
-            day = df["time"].dt.date
-            d_hi = df["high"].astype(float).groupby(day).max()
-            d_low = df["low"].astype(float).groupby(day).min()
-            d_close = df["close"].astype(float).groupby(day).last()
-            code_amp = float(((d_hi - d_low) / d_close.shift(1)).dropna().mean())
+            code_amp = code_amplitudes[code]
             if code_amp < amp_floor:
                 from loguru import logger
 
@@ -226,6 +234,7 @@ def run_backtest(
         n = len(frames.time)
         pending: dict | None = None
         eq_rows: list[tuple] = []  # (date, 做T净值, 纯持有净值)——日终实点，无前视
+        diluted_rows: list[tuple] = []  # (date, code, 摊薄成本/股)
 
         for i in range(n):
             if i == 0 or days[i] != days[i - 1]:
@@ -288,6 +297,7 @@ def run_backtest(
                     acc.cash + acc.shares_held * day_close,
                     bh_cash + acc.base_shares * day_close,
                 ))
+                diluted_rows.append((days[i], code, acc.diluted_cost_per_share))
 
         if acc.pending_t_shares is not None:
             result.trades.append({
@@ -302,8 +312,14 @@ def run_backtest(
             [e for _, e, _ in eq_rows], index=eq_dates)
         bh_paths[code] = pd.Series(
             [b for _, _, b in eq_rows], index=eq_dates)
+        diluted_frames.append(pd.DataFrame(
+            diluted_rows, columns=["date", "code", "cost_per_share"]))
     result.codes = active_codes
-
+    result.amp_floor = amp_floor if params.amp_filter else 0.0
+    result.diluted = (
+        pd.concat(diluted_frames, ignore_index=True) if diluted_frames
+        else pd.DataFrame(columns=["date", "code", "cost_per_share"])
+    )
     result.final_equity = float(
         np.nansum([p.iloc[-1] for p in equity_paths.values()])
     ) if equity_paths else 0.0
@@ -446,6 +462,11 @@ def write_outputs(result: BacktestResult, params: TTradeParams, outdir: Path) ->
     summary_path = outdir / "summary.md"
     summary_path.write_text(render_summary(result, params), encoding="utf-8")
     paths["summary"] = summary_path
+    # 完整化产物（#8）：摊薄曲线 + 自包含 HTML 报告
+    from quant_etf.t_trade.report import write_dilution_csv, write_html
+
+    paths["dilution"] = write_dilution_csv(result, outdir)
+    paths["html"] = write_html(result, paths, outdir)
     return paths
 
 

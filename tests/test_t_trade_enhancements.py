@@ -60,11 +60,6 @@ class TestVolumeGate:
 
 
 class TestResonanceGate:
-    def test_blocked_when_higher_trend_opposes(self):
-        e = engine()
-        d = e.on_bar(ctx(rsi=15.0, higher_trend=Trend.DOWN))
-        assert d.action == TtAction.NONE
-
     def test_passes_when_aligned(self):
         e = engine()
         d = e.on_bar(ctx(rsi=15.0, higher_trend=Trend.UP))
@@ -195,7 +190,8 @@ class TestTriggerLabels:
         e = engine()
         d = e.on_bar(ctx(
             rsi=15.0, trend=Trend.UP,
+            fractal_buy_ok=True, volume_shrink_ok=True,
             higher_trend=Trend.UP, index_trend=Trend.UP,
         ))
         assert "fractal" in d.reason and "resonance" in d.reason
-        assert "index" in d.reason
+        assert "index" in d.reason and "window" in d.reason

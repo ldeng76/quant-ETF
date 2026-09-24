@@ -17,8 +17,17 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
-from .classifier import Direction, Trend, index_permits, resonates
+from .classifier import Direction, Trend, index_permits
 from .params import TTradeParams
+
+
+def _opposite(trend: Trend) -> Trend:
+    """方向的反面：上行↔下行；横盘无反面。"""
+    if trend == Trend.UP:
+        return Trend.DOWN
+    if trend == Trend.DOWN:
+        return Trend.UP
+    return Trend.SIDEWAYS
 
 
 class TtState(Enum):
@@ -48,9 +57,9 @@ class BarContext:
     primary_trend: Trend
     available_to_sell: int  # 账户 T+1 可卖量快照
     day_amp_ok: bool = True  # 当日已实现振幅达标（amp_dead 门，做T"没振幅不做"）
-    # ---- 增强开关判定材料（默认值=放行）----
-    fractal_buy_ok: bool = True  # 底分型（近3bar内确认）或下影线企稳
-    fractal_sell_ok: bool = True  # 顶分型或上影线承压
+    # ---- 增强开关判定材料（None=信号未计算：入场门放行、对冲腿不触发）----
+    fractal_buy_ok: bool | None = None  # 底分型（近2bar内确认）或下影线企稳
+    fractal_sell_ok: bool | None = None  # 顶分型或上影线承压
     volume_shrink_ok: bool = True  # 量能收缩（当前bar < 2bar前）
     higher_trend: Optional[Trend] = None  # 高级别（15m/60m）三分类
     index_trend: Optional[Trend] = None  # 大盘（沪深300 主级别）三分类
@@ -186,32 +195,22 @@ class TtEngine:
         passed: list[str] = []
         up = direction == Direction.FORWARD
 
-        if up:
-            if p.confirm_fractal and not ctx.fractal_buy_ok:
-                return [], False
-            if p.confirm_fractal:
-                passed.append("fractal")
-            if p.confirm_volume and not ctx.volume_shrink_ok:
-                return [], False
-            if p.confirm_volume:
-                passed.append("volume")
-        else:
-            if p.confirm_fractal and not ctx.fractal_sell_ok:
-                return [], False
-            if p.confirm_fractal:
-                passed.append("fractal")
-            if p.confirm_volume and not ctx.volume_shrink_ok:
-                return [], False
-            if p.confirm_volume:
-                passed.append("volume")
+        fractal_ok = ctx.fractal_buy_ok if up else ctx.fractal_sell_ok
+        if p.confirm_fractal and fractal_ok is False:
+            return [], False
+        if p.confirm_fractal and fractal_ok:
+            passed.append("fractal")
+        if p.confirm_volume and not ctx.volume_shrink_ok:
+            return [], False
+        if p.confirm_volume:
+            passed.append("volume")
 
         dir_trend = Trend.UP if up else Trend.DOWN
         if p.resonance:
             # "走势不一致→忍住不做"：仅高级别方向相反时拦；横盘为中性放行，
             # 完全同向才计共振标签（并触发重拳份数）
             if ctx.higher_trend is not None:
-                opposite = Trend.DOWN if dir_trend == Trend.UP else Trend.UP
-                if ctx.higher_trend == opposite:
+                if ctx.higher_trend == _opposite(dir_trend):
                     return [], False
                 if ctx.higher_trend == dir_trend:
                     passed.append("resonance")
@@ -243,11 +242,20 @@ class TtEngine:
         return p.units_per_trade
 
     def _exit_signal(self, ctx: BarContext) -> bool:
+        """对冲腿触发（§2.4）：RSI 反向阈值 ∨ 分型/影线 ∨ 偏离度超阈。"""
         p = self.params
         if self._pending_direction == Direction.FORWARD:
-            return ctx.rsi >= p.rsi_sell_th or (p.dev_th > 0 and ctx.dev_above_ma)
+            return (
+                ctx.rsi >= p.rsi_sell_th
+                or (p.confirm_fractal and ctx.fractal_sell_ok)
+                or (p.dev_th > 0 and ctx.dev_above_ma)
+            )
         if self._pending_direction == Direction.REVERSE:
-            return ctx.rsi <= p.rsi_buy_th or (p.dev_th > 0 and ctx.dev_below_ma)
+            return (
+                ctx.rsi <= p.rsi_buy_th
+                or (p.confirm_fractal and ctx.fractal_buy_ok)
+                or (p.dev_th > 0 and ctx.dev_below_ma)
+            )
         return False
 
     def _planned_shares(self, price: float, units: int) -> int:
