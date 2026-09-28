@@ -170,8 +170,15 @@ def run_backtest(
     params: TTradeParams | None = None,
     total_cash: float = 1_000_000.0,
     index_bars: pd.DataFrame | None = None,
+    pre_aggregated: bool = False,
 ) -> BacktestResult:
-    """核心回测循环：每标的独立等权子账户，逐bar决策、次bar开盘成交。"""
+    """核心回测循环：每标的独立等权子账户，逐bar决策、次bar开盘成交。
+
+    pre_aggregated：bars 已经是 primary_level 的聚合结果（例如外部用 DuckDB
+    time_bucket 预聚合的 15m），跳过主级别那一步 pandas 重采样。这纯粹是省掉
+    一次等价聚合的开销——pandas 那个 resample 对 2 年数据要生成 71,633 个
+    15min bin，其中 63,732 个是空 bin，单只标的就要 10 秒以上。不改变任何信号语义。
+    """
     params = params or TTradeParams()
     per_code_cash = total_cash / len(codes)
     result = BacktestResult(codes=[], total_cash=total_cash)
@@ -207,10 +214,11 @@ def run_backtest(
         if df is None or len(df) < params.ma_len + params.slope_n + params.rsi_len:
             continue
         # 主级别即交易级别：15m 主级别在聚合后的 15m bars 上驱动引擎（真·级别切换）
-        drive = (
-            resample_intraday(df, "15min").reset_index()
-            if params.primary_level == "15m" else df
-        )
+        # pre_aggregated 时 bars 已是 15m，直接驱动，别再聚合一遍
+        if params.primary_level == "15m" and not pre_aggregated:
+            drive = resample_intraday(df, "15min").reset_index()
+        else:
+            drive = df
         if len(drive) < params.ma_len + params.slope_n + params.rsi_len:
             continue
         frames = compute_frames(drive, params)

@@ -180,9 +180,9 @@ class TtEngine:
         fwd_ok = t in (Trend.UP, Trend.SIDEWAYS) or (
             p.allow_offside_t and t == Trend.DOWN
         )
-        rev_ok = t in (Trend.DOWN, Trend.SIDEWAYS) or (
+        rev_ok = (t in (Trend.DOWN, Trend.SIDEWAYS) or (
             p.allow_offside_t and t == Trend.UP
-        )
+        )) and not p.long_t_only
         if fwd_ok and ctx.rsi <= p.rsi_buy_th:
             return Direction.FORWARD
         if rev_ok and ctx.rsi >= p.rsi_sell_th:

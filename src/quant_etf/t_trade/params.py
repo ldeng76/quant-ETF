@@ -39,6 +39,7 @@ class TTradeParams:
     max_concurrent: int = 1
     max_trades_per_day: int = 3
     allow_offside_t: bool = False
+    long_t_only: bool = False  # 只做正T：回测显示反T 为负贡献（见 docs/adr）
 
     # 当日闭环
     strict_eod: bool = True
