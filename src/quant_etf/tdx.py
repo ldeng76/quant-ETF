@@ -9,13 +9,16 @@ from pytdx.hq import TdxHq_API
 from pytdx.params import TDXParams
 from pytdx.config import hosts
 
-from quant_etf.conf import TDX_VIPDOC_DIR
+from quant_etf.conf import TDX_DIR, TDX_VIPDOC_DIR
 
 import psutil
 import subprocess as _subprocess
 
 # pytdx socket 超时保护（秒）
 TDX_SOCKET_TIMEOUT = 15
+
+# 探活超时（秒）——探活必须快，否则 69 个候选逐个试要等很久
+TDX_PROBE_TIMEOUT = 5.0
 
 
 @contextmanager
@@ -28,7 +31,19 @@ def _tdx_timeout(timeout: float = TDX_SOCKET_TIMEOUT):
     finally:
         socket.setdefaulttimeout(old)
 
+
+# 实测可用的行情服务器（2026-09-28 全量实测通达信官方 69 个节点的结果）
+#
+# 重要教训：TDX 服务器"协议握手成功"≠"有数据"。实测 69 个节点中：
+#   - 3 个连得上且 get_security_count 有响应，但所有行情/历史接口返回空
+#   - 仅 XCXX01 / XCXX02 真正供数（5m 可回溯 2 年，23832 根）
+# 因此选服务器必须实际拉一根 K 线验证，不能只看 connect() 返回值。
+# 复查工具：uv run python scripts/probe_data_sources.py
 CUSTOM_HQ_HOSTS = [
+    ("XCXX01(实测供数)", "218.6.198.164", 7709),
+    ("XCXX02(实测供数)", "117.139.166.52", 7709),
+    ("XCXX03(时通时断)", "119.4.167.131", 7709),
+    # 以下为历史遗留节点，2026-09-28 实测均返回空数据，仅作最后兜底
     ("扩展行情(测试文件)", "112.74.214.43", 7727),
     ("上海电信主站Z1", "180.153.18.170", 7709),
     ("杭州电信主站J1", "60.191.117.167", 7709),
@@ -37,10 +52,21 @@ CUSTOM_HQ_HOSTS = [
     ("广发", "119.29.19.242", 7709),
 ]
 
+# 通达信行情服务器清单可能出现的路径（connect.cfg 记录了官方节点表）
+CONNECT_CFG_CANDIDATES = [
+    TDX_DIR / "connect.cfg",
+    TDX_VIPDOC_DIR.parent / "connect.cfg",
+]
+
+
 
 def get_local_tdx_server() -> tuple[str, int] | None:
     """
     通过本地运行的通达信进程自动发现行情服务器地址
+
+    注意：这里拿到的是**通达信客户端自己连的节点**，不是"对 pytdx 供数的节点"。
+    两者可能不一致（实测 112.45.28.4 通达信在用，但 pytdx 从它拉不到任何数据），
+    所以本函数的结果只应作为候选之一，必须经 probe_server_has_data 验证后才能用。
     :return: (ip, port) 元组，如果未找到则返回 None
     """
     # 查找通达信主进程 PID
@@ -79,7 +105,169 @@ def get_local_tdx_server() -> tuple[str, int] | None:
     return None
 
 
-# 全局工作服务器缓存
+def _find_connect_cfg() -> Path | None:
+    """定位通达信的 connect.cfg（记录官方行情服务器清单）"""
+    for path in CONNECT_CFG_CANDIDATES:
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def discover_hosts_from_connect_cfg() -> list[tuple[str, int]]:
+    """
+    解析本机通达信 connect.cfg，返回官方行情服务器列表 [(ip, port), ...]
+
+    connect.cfg 是通达信客户端自己的服务器清单，比 pytdx 内置的 hq_hosts 更贴近
+    当前真实可用的节点。文件是 GBK 编码，HostName 可能是问号占位，只需 IP+Port。
+    :return: 解析到的服务器列表，文件不存在或损坏时返回空列表
+    """
+    import re
+
+    cfg = _find_connect_cfg()
+    if cfg is None:
+        return []
+
+    try:
+        raw = cfg.read_bytes()
+    except OSError as e:
+        logger.warning(f"Failed to read {cfg}: {e}")
+        return []
+
+    text = raw.decode("gbk", errors="ignore")
+    # 形如 IPAddress01=1.2.3.4 \r\n ... Port01=7709
+    pairs = re.findall(
+        r"IPAddress(\d+)=([0-9.]+)\s*[\r\n]+\w*\1=(\d{4,5})", text
+    )
+    if not pairs:
+        # 退化：只要 IP 和端口都出现就算
+        pairs = [
+            (str(i), ip, port)
+            for i, (ip, port) in enumerate(
+                re.findall(r"([0-9]{1,3}(?:\.[0-9]{1,3}){3})[^\d\n]{0,20}?(\d{4,5})", text)
+            )
+        ]
+
+    servers: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for _, ip, port in pairs:
+        ip = ip.strip()
+        if ip.startswith("192.168.") or ":" in ip:  # 跳过内网与 IPv6
+            continue
+        try:
+            key = (ip, int(port))
+        except ValueError:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        servers.append(key)
+
+    if servers:
+        logger.info(f"Loaded {len(servers)} TDX hosts from {cfg}")
+    return servers
+
+
+def get_hq_server_candidates(max_servers: int = 8) -> list[tuple[str, int]]:
+    """
+    构造按可信度排序的候选行情服务器列表
+
+    顺序：实测供数的硬编码节点 → connect.cfg 官方清单 → 本机通达信当前连接的节点
+    → pytdx 内置 hq_hosts。去重后截断。
+
+    只做"排序"不做"验证"；要确认某个候选真的供数，用 probe_server_has_data。
+    :param max_servers: 最多返回的候选数量
+    :return: [(ip, port), ...]
+    """
+    ordered: list[tuple[str, int]] = []
+
+    def add(ip: str, port: int) -> None:
+        key = (str(ip), int(port))
+        if key not in ordered:
+            ordered.append(key)
+
+    # 1) 实测供数的硬编码节点（最高优先级）
+    for host_info in CUSTOM_HQ_HOSTS:
+        if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
+            add(str(host_info[1]), int(host_info[2]))
+
+    # 2) 通达信官方清单
+    for ip, port in discover_hosts_from_connect_cfg():
+        add(ip, port)
+
+    # 3) 本机通达信当前连接的节点（可能是坏节点，放后面兜底）
+    local = get_local_tdx_server()
+    if local:
+        add(local[0], local[1])
+
+    # 4) pytdx 内置
+    try:
+        for host_info in list(hosts.hq_hosts)[:max_servers]:
+            if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
+                add(str(host_info[1]), int(host_info[2]))
+            elif isinstance(host_info, dict):
+                add(str(host_info["ip"]), int(host_info["port"]))
+    except Exception as e:  # pragma: no cover - pytdx 内置数据异常
+        logger.debug(f"Failed to read pytdx builtin hq_hosts: {e}")
+
+    return ordered[:max_servers]
+
+
+def probe_server_has_data(
+    server: str,
+    port: int,
+    probe_code: str = "510050",
+    timeout: float = TDX_PROBE_TIMEOUT,
+) -> bool:
+    """
+    验证服务器是否真的供数：实际拉一根 K 线，而不只是握手成功
+
+    TDX 协议有个坑：部分节点 TCP 与协议握手都正常、get_security_count 也有返回，
+    但 get_security_bars / get_security_quotes 一律返回空。只看 connect() 会误判。
+    :return: True 表示能拉到数据
+    """
+    market = code_to_market(probe_code)
+    api = TdxHq_API(auto_retry=False, heartbeat=False)
+    try:
+        with _tdx_timeout(timeout):
+            if not api.connect(server, port, time_out=timeout):
+                return False
+            bars = api.get_security_bars(9, market, probe_code, 0, 5)
+            return bool(bars)
+    except Exception as e:
+        logger.debug(f"Probe failed for {server}:{port}: {type(e).__name__}: {e}")
+        return False
+    finally:
+        try:
+            api.disconnect()
+        except Exception:
+            pass
+
+
+def select_working_server(
+    probe_code: str = "510050",
+    max_candidates: int = 8,
+) -> tuple[str, int] | None:
+    """
+    逐个探活候选服务器，返回第一个真正供数的节点并写入缓存
+
+    :param probe_code: 探活用的标的（默认 510050，流动性好、不易停牌）
+    :param max_candidates: 最多探活多少个候选
+    :return: 可用服务器；全部不可用时返回 None
+    """
+    for server, port in get_hq_server_candidates(max_candidates):
+        if probe_server_has_data(server, port, probe_code):
+            logger.info(f"TDX server verified: {server}:{port}")
+            _set_cached_server(server, port)
+            return server, port
+        logger.debug(f"TDX server has no data, skipping: {server}:{port}")
+    logger.warning("No TDX server returned data; pytdx upstream appears unavailable")
+    return None
+
+
+# 全局工作服务器缓存（只存经探活验证的服务器）
 _cached_server: tuple[str, int] | None = None
 _failed_servers: set[tuple[str, int]] = set()  # 记录失败的服务器
 _xdxr_cache: dict[str, pd.DataFrame] = {}  # 缓存xdxr数据
@@ -199,47 +387,29 @@ def code_to_market(code: str) -> int:
 def _get_default_hq_server() -> tuple[str, int]:
     """
     获取默认行情服务器地址
-    优先级: 本地通达信进程发现的服务器 > 缓存服务器 > CUSTOM_HQ_HOSTS[0] > 默认服务器
+
+    优先级: 已验证的缓存服务器 > 候选列表首个（实测供数硬编码 → connect.cfg 官方清单
+    → 本机通达信当前节点 → pytdx 内置）
+
+    注意：这里**不再**把"本机通达信进程当前连接的节点"放在最前。实测该节点
+    （112.45.28.4）通达信自己在用，但 pytdx 从它拉不到任何数据，优先用它会让整个
+    采集链路静默地一直取不到数。该节点只作为候选之一，由探活逻辑决定去留。
     :return: (ip, port) 元组
     """
-    # Priority 1: 优先使用本地通达信进程发现的服务器
-    local_server = get_local_tdx_server()
-    if local_server:
-        logger.info(f"Using local TDX server as default: {local_server[0]}:{local_server[1]}")
-        return local_server
-
-    # Priority 2: 使用缓存的服务器
+    # Priority 1: 已验证的缓存服务器
     cached = _get_cached_server()
     if cached:
         logger.info(f"Using cached server as default: {cached[0]}:{cached[1]}")
         return cached
 
-    # Priority 3: 使用配置的第一个服务器
-    if CUSTOM_HQ_HOSTS:
-        first_host = CUSTOM_HQ_HOSTS[0]
-        if isinstance(first_host, (tuple, list)):
-            if len(first_host) >= 3:
-                ip = str(first_host[1])
-                port = int(first_host[2])
-            else:
-                ip = str(first_host[0])
-                port = int(first_host[1])
-            return ip, port
+    # Priority 2: 候选列表首个（已按实测可信度排序）
+    candidates = get_hq_server_candidates()
+    if candidates:
+        server, port = candidates[0]
+        logger.info(f"Using TDX server candidate as default: {server}:{port}")
+        return server, port
 
-    # Priority 4: 使用 pytdx 默认服务器
-    hq_hosts = hosts.hq_hosts
-    if hq_hosts:
-        first_host = hq_hosts[0]
-        if isinstance(first_host, (tuple, list)):
-            if len(first_host) >= 3:
-                ip = str(first_host[1])
-                port = int(first_host[2])
-            else:
-                ip = str(first_host[0])
-                port = int(first_host[1])
-            return ip, port
-        elif isinstance(first_host, dict):
-            return first_host["ip"], int(first_host["port"])
+    # Priority 3: 兜底
     return "119.147.212.81", 7709
 
 
@@ -265,23 +435,31 @@ def get_realtime_quote(
 
     market_codes = [(code_to_market(code), code) for code in codes]
 
-    # 如果未指定服务器，优先使用本地发现的服务器，失败则回退
+    # 如果未指定服务器，按可信度依次尝试候选节点
     if server is None:
-        # 尝试本地服务器
-        local_server = get_local_tdx_server()
-        if local_server:
-            server, port = local_server
-            try:
-                result = _try_realtime_quote(market_codes, server, port, auto_retry, heartbeat)
-                if not result.empty:
-                    _set_cached_server(server, port)
-                    return result
-                logger.warning(f"Local TDX server {server}:{port} returned empty quotes, falling back")
-            except Exception as e:
-                logger.warning(f"Local TDX server {server}:{port} failed: {e}, falling back to configured list")
+        cached = _get_cached_server()
+        candidates = get_hq_server_candidates()
+        if cached:
+            candidates = [cached] + [c for c in candidates if c != cached]
 
-        # 回退到缓存或配置的服务器
-        server, port = _get_default_hq_server()
+        for try_server, try_port in candidates:
+            try:
+                result = _try_realtime_quote(
+                    market_codes, try_server, try_port, auto_retry, heartbeat
+                )
+                if not result.empty:
+                    _set_cached_server(try_server, try_port)
+                    return result
+                logger.debug(
+                    f"TDX server {try_server}:{try_port} returned empty quotes, trying next"
+                )
+            except Exception as e:
+                logger.debug(
+                    f"TDX server {try_server}:{try_port} failed: {e}, trying next"
+                )
+
+        logger.warning("No TDX server returned realtime quotes")
+        return pd.DataFrame()
 
     try:
         result = _try_realtime_quote(market_codes, server, port, auto_retry, heartbeat)
@@ -410,18 +588,8 @@ def get_security_bars(
             logger.debug(f"Cached server failed, clearing cache")
             _cached_server = None
 
-        # 尝试其他服务器
-        hq_hosts = CUSTOM_HQ_HOSTS + list(hosts.hq_hosts)[:max_servers]
-        for host_info in hq_hosts:
-            if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
-                try_server = str(host_info[1])
-                try_port = int(host_info[2])
-            elif isinstance(host_info, dict):
-                try_server = host_info["ip"]
-                try_port = int(host_info["port"])
-            else:
-                continue
-
+        # 尝试其他服务器（按可信度排序的候选清单）
+        for try_server, try_port in get_hq_server_candidates(max_servers):
             # 跳过已缓存的服务器（已经尝试过了）
             if cached and try_server == cached[0] and try_port == cached[1]:
                 continue
@@ -556,14 +724,8 @@ def get_xdxr_info(code: str) -> pd.DataFrame:
             _failed_servers.add(cached)
     
     # 尝试其他服务器（跳过已失败的）
-    from pytdx.config.hosts import hq_hosts
-    for host_info in CUSTOM_HQ_HOSTS[:3] + list(hq_hosts)[:2]:
-        if isinstance(host_info, (tuple, list)) and len(host_info) >= 3:
-            server = str(host_info[1])
-            port = int(host_info[2])
-            server_key = (server, port)
-        else:
-            continue
+    for server, port in get_hq_server_candidates(5):
+        server_key = (server, port)
         
         # 跳过已失败的服务器
         if server_key in _failed_servers:

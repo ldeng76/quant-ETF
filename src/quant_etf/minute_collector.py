@@ -14,11 +14,15 @@ from pytdx.hq import TdxHq_API
 from pytdx.params import TDXParams
 from pytdx.config.hosts import hq_hosts
 
-from quant_etf.tdx import CUSTOM_HQ_HOSTS, _set_cached_server, _get_cached_server, _tdx_timeout, TDX_SOCKET_TIMEOUT, code_to_market, ALL_INDICES as _ALL_INDICES
+from quant_etf.tdx import (
+    _get_cached_server,
+    _tdx_timeout,
+    code_to_market,
+    select_working_server,
+    ALL_INDICES as _ALL_INDICES,
+)
 from quant_etf.conf import DATA_DIR
 import time as time_module
-import psutil
-import subprocess as _subprocess
 
 _server_failures: dict[str, float] = {}
 SERVER_COOLDOWN = 120
@@ -58,50 +62,24 @@ def close_pg_conn():
 
 def get_local_tdx_server() -> tuple[str, int] | None:
     """
-    通过本地运行的通达信进程自动发现行情服务器地址
-    :return: (ip, port) 元组，如果未找到则返回 None
+    获取可用的行情服务器地址
+
+    优先返回共享缓存中**已探活验证**的服务器；缓存为空时逐个探活候选节点。
+    候选清单由 tdx.py 统一维护（实测供数节点 → connect.cfg 官方清单 → 本机通达信
+    当前节点 → pytdx 内置）。
+
+    这里刻意不再"拿通达信进程当前连接的 IP 直接用"：那个 IP 只说明通达信客户端自己
+    在用它，不保证对 pytdx 供数（实测 112.45.28.4 就是握手正常但 0 数据）。直接缓存
+    会让整条采集链路静默地一直取不到数。
+    :return: (ip, port) 元组；全部候选均不可用时返回 None
     """
-    # 先查共享缓存
+    # 先查共享缓存（只存经探活验证的服务器）
     cached = _get_cached_server()
     if cached:
         return cached
 
-    # 查找通达信主进程 PID
-    tdx_pid = None
-    for proc in psutil.process_iter(["pid", "name"]):
-        try:
-            if proc.info["name"] and "tdxw.exe" == proc.info["name"].lower():
-                tdx_pid = proc.pid
-                break
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-
-    if not tdx_pid:
-        logger.debug("TdxW.exe process not found")
-        return None
-
-    # 通过 netstat 查找连接到 7709 端口的连接
-    try:
-        result = _subprocess.run(
-            f'netstat -ano | findstr "{tdx_pid}" | findstr "7709"',
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.stdout.strip():
-            for line in result.stdout.strip().split("\n"):
-                parts = line.split()
-                if len(parts) >= 3 and parts[3] == "ESTABLISHED":
-                    remote = parts[2]
-                    ip, port_str = remote.rsplit(":", 1)
-                    port = int(port_str)
-                    _set_cached_server(ip, port)
-                    return ip, port
-    except Exception as e:
-        logger.debug(f"Failed to discover TDX server from local process: {e}")
-
-    return None
+    # 逐个探活，返回第一个真正供数的节点（select_working_server 内部会写缓存）
+    return select_working_server()
 
 
 

@@ -45,9 +45,20 @@ def resample_intraday(df5: pd.DataFrame, rule: str = "15min") -> pd.DataFrame:
     return agg
 
 
-def _align_trend(trend_hi: pd.Series, times: pd.Series) -> list:
-    """高级别趋势前向对齐到 5m 时间线；不可得处为 None（门控放行）。"""
+def _align_trend(
+    trend_hi: pd.Series, times: pd.Series, until: pd.Timestamp | None = None
+) -> list:
+    """高级别趋势前向对齐到 5m 时间线；不可得处为 None（门控放行）。
+
+    :param until: 趋势的有效上界。超过该时刻不再前向填充，直接置 None。
+        前向填充本身是为了跨 bar 间隙（午休、隔夜）对齐，属合理；但**跨数据末端**
+        继续填充会把陈旧状态（如三个月前的指数方向）当成当下行情使用——既会误拦
+        合法信号，也会给报告打上并不成立的标签。指数这类"外部环境"序列必须传此界。
+    """
     aligned = trend_hi.reindex(pd.DatetimeIndex(times), method="ffill")
+    if until is not None:
+        stale = pd.DatetimeIndex(times) > until
+        aligned = aligned.mask(stale)
     return [None if pd.isna(v) else v for v in aligned]
 
 
@@ -170,11 +181,15 @@ def run_backtest(
     diluted_frames: list[pd.DataFrame] = []
 
     index_trend_hi = None
+    index_until = None
     if index_bars is not None and len(index_bars):
         index_frames = compute_frames(index_bars, params)
         index_trend_hi = pd.Series(
             index_frames.trend.values, index=pd.DatetimeIndex(index_frames.time)
         )
+        # 指数趋势的有效上界：越过数据末端即视为不可得（门控放行），
+        # 不用陈旧的大盘方向去拦数月后的交易。
+        index_until = pd.Timestamp(index_trend_hi.index.max())
 
     # 振幅过滤的池内分位数复评：个股口径阈值在 ETF 池上常不可达，
     # 用池内 60 分位日均振幅封顶，避免全池被 3%式阈值一刀切停手
@@ -202,7 +217,7 @@ def run_backtest(
         hi_trend = higher_trend_series(df, params)
         hi_aligned = _align_trend(hi_trend, frames.time)
         idx_aligned = (
-            _align_trend(index_trend_hi, frames.time)
+            _align_trend(index_trend_hi, frames.time, until=index_until)
             if index_trend_hi is not None else None
         )
         # 池内校准后的标的级振幅门槛（amp_filter 开启时）
